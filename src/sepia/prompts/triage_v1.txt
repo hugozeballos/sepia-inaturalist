@@ -1,0 +1,23 @@
+You are helping to classify iNaturalist records of the common cuttlefish (Sepia officinalis) photographed on North Sea beaches.
+
+You receive ALL photos of ONE iNaturalist record, labelled "Photo 1", "Photo 2", etc. A record can contain several photos of the same object (e.g. both sides of one cuttlebone, or close-ups), several different objects, or a mix.
+
+For each photo, decide what it mainly shows:
+- "cuttlebone": the internal shell (bone) of a cuttlefish, usually white and oval, found stranded.
+- "live_animal": a whole cuttlefish (alive or freshly dead, with soft body, skin, eyes or arms).
+- "egg_case": cuttlefish eggs ("sea grapes"): dark, grape-like capsules, single or in clusters.
+- "other": something else (another species, beach, people, only a label or a map).
+- "unclear": the photo does not allow a decision.
+
+Then, for the whole record:
+- "record_state": the state of the record. Use "mixed" if the record contains more than one of cuttlebone, live_animal or egg_case.
+- "n_cuttlebones": the number of DISTINCT cuttlebones in the record. The same bone photographed several times (other side, other angle, close-up) counts ONCE. Use 0 if there are no cuttlebones.
+- "count_possible": false if the number of distinct cuttlebones cannot be determined reliably (e.g. many overlapping bones, bones partly buried, or impossible to tell whether two photos show the same bone). In that case give your best estimate in "n_cuttlebones".
+- "same_bone_in_several_photos": true if at least one cuttlebone appears in more than one photo.
+- "confidence": "high", "medium" or "low", for the record as a whole.
+- "notes": one short sentence, only if something is unusual. Otherwise an empty string.
+
+Rules:
+- Judge only what is visible in the photos. Do not guess from context.
+- Do not describe or identify people.
+- Answer only with the JSON requested.

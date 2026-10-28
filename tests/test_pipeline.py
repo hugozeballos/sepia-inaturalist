@@ -3,6 +3,7 @@ Pruebas sin internet: simulan la API de iNaturalist.
 Correr con:  pytest -q
 """
 import io
+import json
 
 import openpyxl
 import pytest
@@ -139,3 +140,39 @@ def test_ids_file(tmp_path):
 def test_pilot_ids_in_repo():
     ids = sepia.ids_from_file("configs/pilot79_ids.txt")
     assert len(ids) == 79
+
+
+class FakeProvider:
+    name = "fake"
+    def __init__(self):
+        self.calls = []
+    def classify(self, images, prompt):
+        self.calls.append(len(images))
+        res = {"photos": [{"photo_index": i + 1, "content": "cuttlebone", "n_cuttlebones_visible": 1}
+                          for i in range(len(images))],
+               "record_state": "cuttlebone", "n_cuttlebones": 1, "count_possible": True,
+               "same_bone_in_several_photos": len(images) > 1, "confidence": "high", "notes": ""}
+        sepia.triage.TriageResult.model_validate(res)   # cumple el esquema
+        return res, json.dumps(res), {"input_tokens": 500, "output_tokens": 80}
+
+
+def test_triage_resume(api, cfg, monkeypatch):
+    sepia.download_observations(cfg)
+    sepia.build_tables(cfg)
+    sepia.download_photos(cfg)
+    sepia.make_resized(cfg, 512)
+    cfg.triage = {"provider": "fake", "model": "m1", "requests_per_minute": 100000}
+    monkeypatch.setattr(sepia.triage.time, "sleep", lambda s: None)
+    prov = FakeProvider()
+    sepia.run_triage(cfg, provider=prov, limit=3)
+    sepia.run_triage(cfg, provider=prov)              # reanuda: solo los 4 que faltan
+    assert len(prov.calls) == 7 and set(prov.calls) == {2}   # todas las fotos del registro juntas
+    t = sepia.load_triage(cfg, "fake", "m1")
+    assert len(t) == 7 and t["n_cuttlebones"].eq(1).all()
+    raw = sepia.read_jsonl(sepia.triage.output_path(cfg, "fake", "m1"))
+    assert raw["prompt_sha"].nunique() == 1 and raw["photo_ids"].iloc[0] == [11, 12]
+
+
+def test_prompt_versioned():
+    text, sha = sepia.load_prompt("triage_v1")
+    assert "DISTINCT cuttlebones" in text and len(sha) == 12

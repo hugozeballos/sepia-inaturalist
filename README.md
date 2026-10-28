@@ -17,12 +17,14 @@ El objetivo es llenar la tabla de Martin: una fila por individuo y por lado (dor
 
 ```
 configs/        parámetros de cada corrida (YAML, versionados) y listas de IDs
-scripts/        comandos que se ejecutan (download.py, build_excel.py)
+scripts/        comandos que se ejecutan (download.py, triage.py, build_excel.py)
 src/sepia/      funciones
   config.py     Config y lectura de YAML
   io.py         carpetas, JSON Lines, logs, manifest
   inat.py       descarga de registros y fotos, tablas, versiones reducidas
   export.py     Excel de entrega
+  triage.py     triaje por registro con un modelo de visión (Gemini; Qwen después)
+  prompts/      prompts versionados (triage_v1.txt)
 tests/          pruebas sin internet (API simulada)
 docs/           documentación
 ```
@@ -39,6 +41,7 @@ photos/original/   fotos originales  (<observation_id>_<photo_id>.jpg)
 photos/512px/      para GPT
 photos/1024px/     para la interfaz de anotación
 annotations/       una .jsonl por anotador
+outputs/           respuestas de los modelos (triage_<proveedor>_<modelo>.jsonl)
 exports/           Excel generados
 logs/              registro de cada paso
 manifest.json      parámetros y fecha de descarga (para el párrafo de métodos)
@@ -84,6 +87,22 @@ token = userdata.get('GITHUB_TOKEN')
 ```
 
 El código se edita en un solo lugar (fuera de Colab), se hace commit y push, y en Colab solo `git pull`.
+
+## Triaje con Gemini
+
+Clasifica cada registro (todas sus fotos juntas, a 512 px): estado (hueso, vivo, huevos),
+número de huesos distintos y qué muestra cada foto. Proveedor, modelo, temperatura y versión
+del prompt van en la sección `triage` del YAML; cada respuesta se guarda completa con el hash
+del prompt y los tokens usados.
+
+```python
+import os
+from google.colab import userdata
+os.environ['GEMINI_API_KEY'] = userdata.get('GEMINI_API_KEY')   # secreto de Colab
+
+!python scripts/triage.py --config configs/pilot_a1.yaml --limit 5   # prueba
+!python scripts/triage.py --config configs/pilot_a1.yaml             # todo (reanudable)
+```
 
 ## Pruebas
 

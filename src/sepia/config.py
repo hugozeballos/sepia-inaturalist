@@ -41,6 +41,8 @@ class Config:
     ids_file: str | None = None        # lista de IDs (uno por linea): descarga solo esos (piloto)
     ids_excel: str | None = None       # alternativa: IDs desde la columna url de un Excel
     resize: tuple[int, ...] = (512, 1024)  # versiones reducidas a generar
+    # Triaje con modelo de vision (ver src/sepia/triage.py)
+    triage: dict | None = None
 
     def query_params(self) -> dict:
         """Parametros de la consulta a la API (sin paginacion)."""
