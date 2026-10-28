@@ -13,7 +13,7 @@ triage:
   provider: gemini
   model: gemini-3.5-flash-lite  # liviano y gratuito; 3.8-flash daba 503 por alta demanda (oct 2026)
   temperature: 0
-  prompt_version: triage_v1     # src/sepia/prompts/triage_v1.txt
+  prompt_version: triage_v2     # src/sepia/prompts/triage_v2.txt (v1: conto 24 huesos 'seguro')
   image_size: 512               # usa photos/512px
   requests_per_minute: 8        # por debajo del limite del nivel gratuito
   thinking_level: low           # razonamiento del modelo: minimal, low, medium, high

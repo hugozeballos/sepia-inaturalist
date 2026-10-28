@@ -7,7 +7,7 @@ Uso (en Colab, con la clave en los secretos):
     os.environ['GEMINI_API_KEY'] = userdata.get('GEMINI_API_KEY')
     !python scripts/triage.py --config configs/pilot_a1.yaml --limit 5   # prueba
     !python scripts/triage.py --config configs/pilot_a1.yaml             # todo
-    !python scripts/triage.py --config configs/pilot_a1.yaml --ids configs/triage_hard_cases.txt
+    !python scripts/triage.py --config configs/pilot_a1.yaml --ids configs/triage_hard_cases.jsonl
 
 Reanudable: los registros ya clasificados se saltan.
 """
@@ -22,7 +22,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--config", required=True)
 ap.add_argument("--limit", type=int, default=None, help="clasificar solo N registros (prueba)")
 ap.add_argument("--ids", default=None,
-                help="clasificar solo estos IDs: lista separada por comas o archivo .txt (uno por linea)")
+                help="clasificar solo estos IDs: lista separada por comas, .txt (uno por linea) o .jsonl de casos")
 args = ap.parse_args()
 
 cfg = sepia.load_config(args.config)
@@ -30,6 +30,10 @@ if not cfg.triage:
     ap.error("la configuracion no tiene seccion 'triage'")
 ids = None
 if args.ids:
-    ids = (sepia.ids_from_file(args.ids) if args.ids.endswith(".txt")
-           else [int(x) for x in args.ids.split(",") if x.strip()])
+    if args.ids.endswith(".txt"):
+        ids = sepia.ids_from_file(args.ids)
+    elif args.ids.endswith(".jsonl"):
+        ids = [int(i) for i in sepia.read_jsonl(args.ids)["observation_id"]]
+    else:
+        ids = [int(x) for x in args.ids.split(",") if x.strip()]
 sepia.run_triage(cfg, limit=args.limit, ids=ids)

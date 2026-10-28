@@ -1,7 +1,0 @@
-# Casos dificiles para probar el triaje (guia de Martin, 22 oct 2026). Respuesta correcta:
-# 262274777 -> 3 huesos en una sola foto
-# 338943404 -> 3 huesos (2 dorsal, 1 ventral)
-# 338604581 -> 1 hueso en 2 fotos (dorsal y ventral), same_bone_in_several_photos = true
-262274777
-338943404
-338604581

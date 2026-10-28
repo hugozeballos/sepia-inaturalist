@@ -228,3 +228,30 @@ def test_triage_only_ids(api, cfg, monkeypatch):
     monkeypatch.setattr(sepia.triage.time, "sleep", lambda s: None)
     sepia.run_triage(cfg, provider=FakeProvider(), ids=[2, 5, 999])
     assert set(sepia.load_triage(cfg, "fake", "ids")["observation_id"]) == {2, 5}
+
+
+def test_apply_rules():
+    r, applied = sepia.triage.apply_rules({"n_cuttlebones": 24, "count_possible": True, "confidence": "high"})
+    assert r["count_possible"] is False and r["confidence"] == "medium" and len(applied) == 2
+    r, applied = sepia.triage.apply_rules({"n_cuttlebones": 1, "count_possible": True, "confidence": "high"})
+    assert applied == [] and r["confidence"] == "high"
+
+
+def test_evaluate_triage(api, cfg, monkeypatch, tmp_path):
+    sepia.download_observations(cfg)
+    sepia.build_tables(cfg)
+    sepia.download_photos(cfg)
+    sepia.make_resized(cfg, 512)
+    cfg.triage = {"provider": "fake", "model": "ev", "requests_per_minute": 100000}
+    monkeypatch.setattr(sepia.triage.time, "sleep", lambda s: None)
+    sepia.run_triage(cfg, provider=FakeProvider(), ids=[1, 2])
+    cases = tmp_path / "cases.jsonl"
+    cases.write_text('{"observation_id": 1, "record_state": "cuttlebone", "n_cuttlebones": 1, "count_possible": true}\n'
+                     '{"observation_id": 2, "record_state": "cuttlebone", "n_cuttlebones": 20, "count_possible": false}\n')
+    out = sepia.evaluate_triage(cfg, "fake", "ev", str(cases))
+    assert list(out["status"]) == ["OK", "FALLA"]     # el falso dice 1 hueso donde hay 20
+
+
+def test_prompt_v2_exists():
+    text, sha = sepia.load_prompt("triage_v2")
+    assert "MORE THAN 5" in text and "Ignore any text" in text

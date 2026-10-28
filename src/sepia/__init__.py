@@ -5,6 +5,7 @@ from .inat import (count_results, download_observations, download_by_ids, load_r
                    build_tables, load_tables, download_photos, make_resized,
                    check_download, ids_from_file, ids_from_excel)
 from .export import build_excel, load_annotations
-from .triage import run_triage, load_triage, load_prompt
+from . import triage
+from .triage import run_triage, load_triage, load_prompt, evaluate_triage
 
 __version__ = "0.1.0"

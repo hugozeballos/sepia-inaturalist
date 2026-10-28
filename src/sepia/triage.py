@@ -51,8 +51,34 @@ class TriageResult(BaseModel):
     n_cuttlebones: int
     count_possible: bool
     same_bone_in_several_photos: bool
+    fragments_present: bool = False   # desde triage_v2
     confidence: Literal["high", "medium", "low"]
     notes: str
+
+
+# --------------------------------------------------------------------------
+# Reglas fijas sobre la respuesta (deterministas, documentadas en los metodos)
+# --------------------------------------------------------------------------
+
+MAX_EXACT_COUNT = 5   # sobre este numero de huesos, el conteo lo hace una persona
+
+
+def apply_rules(result: dict) -> tuple[dict, list[str]]:
+    """
+    Corrige respuestas incoherentes del modelo con reglas fijas:
+    - mas de MAX_EXACT_COUNT huesos -> count_possible = False
+    - conteo no posible -> la confianza no puede ser 'high'
+    Devuelve (resultado corregido, lista de reglas aplicadas).
+    """
+    r = dict(result)
+    applied = []
+    if r.get("n_cuttlebones", 0) > MAX_EXACT_COUNT and r.get("count_possible"):
+        r["count_possible"] = False
+        applied.append(f"n_cuttlebones>{MAX_EXACT_COUNT} -> count_possible=false")
+    if not r.get("count_possible") and r.get("confidence") == "high":
+        r["confidence"] = "medium"
+        applied.append("count_possible=false -> confidence=medium")
+    return r, applied
 
 
 # --------------------------------------------------------------------------
@@ -224,7 +250,9 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None,
                     print(f"  limite de uso o modelo saturado; espero {wait} s", flush=True)
                     time.sleep(wait)
             elapsed = round(time.time() - t0, 1)
-            record.update(result=result, raw_response=raw, **usage, elapsed_s=elapsed, error=None)
+            result, rules = apply_rules(result)
+            record.update(result=result, rules_applied=rules, raw_response=raw, **usage,
+                          elapsed_s=elapsed, error=None)
             stats["ok"] += 1
             print(f"{n}/{len(todo)} · {oid} · {len(images)} fotos · {result['record_state']}, "
                   f"{result['n_cuttlebones']} huesos ({result['confidence']}) · {elapsed} s · "
@@ -261,3 +289,48 @@ def load_triage(cfg: Config, provider: str, model: str):
     flat = pd.json_normalize(df["result"].tolist())
     flat.insert(0, "observation_id", df["observation_id"].values)
     return flat
+
+
+# --------------------------------------------------------------------------
+# Evaluacion contra casos de prueba con respuesta conocida
+# --------------------------------------------------------------------------
+
+def load_cases(path: str):
+    """Casos de prueba (JSONL): observation_id + respuesta esperada."""
+    from .io import read_jsonl
+    return read_jsonl(Path(path))
+
+
+def evaluate_triage(cfg: Config, provider: str, model: str, cases_path: str):
+    """
+    Compara el triaje con los casos de prueba. Criterio:
+    - estado igual al esperado;
+    - si se esperan <= MAX_EXACT_COUNT huesos: numero exacto y count_possible igual;
+    - si se esperan mas: el modelo debe marcar > MAX_EXACT_COUNT y count_possible = False
+      (el numero exacto lo cuenta una persona).
+    """
+    import pandas as pd
+    cases = load_cases(cases_path)
+    tri = load_triage(cfg, provider, model)
+    rows = []
+    for c in cases.to_dict(orient="records"):
+        got = tri.loc[tri["observation_id"] == c["observation_id"]] if len(tri) else tri
+        if got.empty:
+            rows.append({"observation_id": c["observation_id"], "status": "sin resultado"})
+            continue
+        g = got.iloc[0]
+        state_ok = g["record_state"] == c["record_state"]
+        if c["n_cuttlebones"] > MAX_EXACT_COUNT:
+            count_ok = (g["n_cuttlebones"] > MAX_EXACT_COUNT) and not g["count_possible"]
+        else:
+            count_ok = (g["n_cuttlebones"] == c["n_cuttlebones"]
+                        and bool(g["count_possible"]) == bool(c["count_possible"]))
+        rows.append({"observation_id": c["observation_id"],
+                     "expected": f"{c['record_state']}, {c['n_cuttlebones']} ({'exacto' if c['count_possible'] else 'no exacto'})",
+                     "got": f"{g['record_state']}, {g['n_cuttlebones']} ({'exacto' if g['count_possible'] else 'no exacto'}), {g['confidence']}",
+                     "state_ok": state_ok, "count_ok": count_ok,
+                     "status": "OK" if (state_ok and count_ok) else "FALLA"})
+    out = pd.DataFrame(rows)
+    n_ok = (out["status"] == "OK").sum()
+    print(f"{n_ok}/{len(out)} casos correctos")
+    return out

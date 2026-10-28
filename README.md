@@ -17,14 +17,14 @@ El objetivo es llenar la tabla de Martin: una fila por individuo y por lado (dor
 
 ```
 configs/        parámetros de cada corrida (YAML, versionados) y listas de IDs
-scripts/        comandos que se ejecutan (download.py, triage.py, build_excel.py)
+scripts/        comandos que se ejecutan (download.py, triage.py, evaluate_triage.py, build_excel.py)
 src/sepia/      funciones
   config.py     Config y lectura de YAML
   io.py         carpetas, JSON Lines, logs, manifest
   inat.py       descarga de registros y fotos, tablas, versiones reducidas
   export.py     Excel de entrega
   triage.py     triaje por registro con un modelo de visión (Gemini; Qwen después)
-  prompts/      prompts versionados (triage_v1.txt)
+  prompts/      prompts versionados (triage_v1.txt, triage_v2.txt)
 tests/          pruebas sin internet (API simulada)
 docs/           documentación
 ```
@@ -107,6 +107,18 @@ os.environ['GEMINI_API_KEY'] = userdata.get('GEMINI_API_KEY')   # secreto de Col
 !python scripts/triage.py --config configs/pilot_a1.yaml --limit 5   # prueba
 !python scripts/triage.py --config configs/pilot_a1.yaml             # todo (reanudable)
 ```
+
+Casos de prueba con respuesta conocida (`configs/triage_hard_cases.jsonl`): varios huesos en una
+foto, el mismo hueso en varias fotos, descripciones que dicen "cientos" con una sola foto.
+
+```python
+!python scripts/triage.py --config configs/pilot_a1.yaml --ids configs/triage_hard_cases.jsonl
+!python scripts/evaluate_triage.py --config configs/pilot_a1.yaml
+```
+
+Reglas fijas aplicadas sobre la respuesta del modelo (`apply_rules`, quedan registradas en
+`rules_applied`): más de 5 huesos → conteo no exacto (lo cuenta una persona); conteo no exacto →
+la confianza no puede ser alta.
 
 ## Pruebas
 
