@@ -70,7 +70,7 @@ def load_prompt(version: str) -> tuple[str, str]:
 # --------------------------------------------------------------------------
 
 class RateLimited(Exception):
-    """El proveedor rechazo por limite de uso (por minuto o diario)."""
+    """Rechazo temporal: limite de uso (429) o modelo saturado (503). Se reintenta."""
 
 
 class FatalProviderError(Exception):
@@ -123,7 +123,8 @@ class GeminiProvider:
             )
         except Exception as e:  # el SDK usa varias clases de error
             msg = str(e)
-            if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+            # 429 = limite de uso; 503 = modelo saturado. Ambos son temporales: esperar y reintentar
+            if any(m in msg for m in ("429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE")):
                 raise RateLimited(msg) from e
             if any(m in msg for m in FATAL_MARKERS):
                 raise FatalProviderError(msg) from e
@@ -213,7 +214,7 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None) -> dict:
                     if attempt == 3:
                         raise
                     wait = 30 * 2 ** attempt
-                    print(f"  limite de uso; espero {wait} s", flush=True)
+                    print(f"  limite de uso o modelo saturado; espero {wait} s", flush=True)
                     time.sleep(wait)
             elapsed = round(time.time() - t0, 1)
             record.update(result=result, raw_response=raw, **usage, elapsed_s=elapsed, error=None)
@@ -226,7 +227,7 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None) -> dict:
             stats["output_tokens"] += usage.get("output_tokens") or 0
             stats["thinking_tokens"] += usage.get("thinking_tokens") or 0
         except RateLimited as e:
-            print(f"Limite de uso persistente (posible limite diario). Se detiene; reanudar mas tarde.\n  {e}")
+            print(f"Limite de uso o saturacion persistente. Se detiene; reanudar mas tarde.\n  {e}")
             break
         except FatalProviderError as e:
             print(f"Error de configuracion: se detiene (revisar modelo o clave en el YAML / secretos).\n  {e}")

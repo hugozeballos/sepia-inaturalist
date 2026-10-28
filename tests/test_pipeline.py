@@ -195,3 +195,25 @@ def test_triage_stops_on_fatal(api, cfg, monkeypatch):
     sepia.run_triage(cfg, provider=Gone())
     assert Gone.calls == 1                       # se detuvo al primer error de configuracion
     assert sepia.triage.done_ids(sepia.triage.output_path(cfg, "fake", "gone")) == set()
+
+
+def test_triage_retries_overload(api, cfg, monkeypatch):
+    sepia.download_observations(cfg)
+    sepia.build_tables(cfg)
+    sepia.download_photos(cfg)
+    sepia.make_resized(cfg, 512)
+    cfg.triage = {"provider": "fake", "model": "busy", "requests_per_minute": 100000}
+    monkeypatch.setattr(sepia.triage.time, "sleep", lambda s: None)
+    ok = FakeProvider()
+
+    class Busy:
+        n = 0
+        def classify(self, images, prompt):
+            Busy.n += 1
+            if Busy.n == 1:   # primer intento: modelo saturado
+                raise sepia.triage.RateLimited("503 UNAVAILABLE high demand")
+            return ok.classify(images, prompt)
+
+    sepia.run_triage(cfg, provider=Busy(), limit=2)
+    t = sepia.load_triage(cfg, "fake", "busy")
+    assert len(t) == 2 and Busy.n == 3   # reintento y luego siguio
