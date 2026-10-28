@@ -110,6 +110,38 @@ def load_annotations(cfg: Config) -> pd.DataFrame:
     return ann.drop_duplicates(subset=ANNOTATION_KEY, keep="last")
 
 
+# Estado del triaje -> palabras de la hoja 'legend' de Martin
+STATE_WORDS = {"cuttlebone": "cuttlebone", "live_animal": "live animal",
+               "egg_case": "egg case", "mixed": "mixed", "other": "other",
+               "unclear": "unclear"}
+
+
+def triage_for_excel(cfg: Config) -> pd.DataFrame:
+    """
+    Resultados del triaje (modelo y version de prompt de cfg.triage) listos para
+    unir al Excel: una fila por registro con state, n_cuttlebones y trazabilidad.
+    Devuelve una tabla vacia si no hay seccion 'triage' o aun no hay resultados.
+    """
+    cols = ["observation_id", "state_gpt", "n_cuttlebones_gpt", "model_version_gpt",
+            "model_prob_gpt"]
+    if not cfg.triage:
+        return pd.DataFrame(columns=cols)
+    from .triage import load_triage
+    t = cfg.triage
+    tri = load_triage(cfg, t["provider"], t["model"], t.get("prompt_version"))
+    if tri.empty:
+        return pd.DataFrame(columns=cols)
+    out = pd.DataFrame({"observation_id": tri["observation_id"]})
+    out["state_gpt"] = tri["record_state"].map(STATE_WORDS)
+    out["n_cuttlebones_gpt"] = tri["n_cuttlebones"]
+    out["model_version_gpt"] = f'{t["model"]}/{t.get("prompt_version", "")}'
+    # El modelo no da probabilidades: se guarda su confianza y si el conteo es exacto
+    out["model_prob_gpt"] = [
+        json.dumps({"confidence": c, "count_possible": bool(cp)})
+        for c, cp in zip(tri.get("confidence"), tri.get("count_possible"))]
+    return out
+
+
 def build_excel(cfg: Config, out_name: str | None = None) -> Path:
     """
     Genera el Excel de entrega con el formato de Martin, en cualquier momento.
@@ -141,6 +173,28 @@ def build_excel(cfg: Config, out_name: str | None = None) -> Path:
     ann = load_annotations(cfg)
     rec_cols = [c for c in obs.columns if c not in ann.columns or c == "observation_id"]
     table = obs[rec_cols].merge(ann, on="observation_id", how="left")
+
+    # Triaje (GPT): completa state y n_cuttlebones SOLO donde no hay anotacion manual.
+    # La anotacion de una persona siempre tiene prioridad sobre el modelo.
+    tri = triage_for_excel(cfg)
+    table = table.merge(tri, on="observation_id", how="left")
+    for c in ["state", "n_cuttlebones", "label_source", "model_version", "model_prob",
+              "reviewed"]:
+        if c not in table:
+            table[c] = None
+        table[c] = table[c].astype(object)
+    used_gpt = (table["state"].isna() & table["state_gpt"].notna()) | \
+               (table["n_cuttlebones"].isna() & table["n_cuttlebones_gpt"].notna())
+    for c in ["state", "n_cuttlebones"]:
+        fill = table[c].isna() & table[f"{c}_gpt"].notna()
+        table.loc[fill, c] = table.loc[fill, f"{c}_gpt"]
+    no_source = table["label_source"].isna()
+    table.loc[used_gpt & no_source, "label_source"] = "gpt"
+    table.loc[used_gpt & no_source, "reviewed"] = False
+    for c in ["model_version", "model_prob"]:
+        fill = used_gpt & table[c].isna()
+        table.loc[fill, c] = table.loc[fill, f"{c}_gpt"]
+    table = table.drop(columns=[c for c in table.columns if c.endswith("_gpt")])
 
     # side -> las dos columnas del Excel de Martin
     side = table.get("side", pd.Series(index=table.index, dtype=object))

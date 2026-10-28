@@ -292,3 +292,28 @@ def test_redo(api, cfg, monkeypatch):
     assert len(prov.calls) == 3
     raw = sepia.read_jsonl(sepia.triage.output_path(cfg, "fake", "rd"))
     assert len(raw) == 3 and len(sepia.load_triage(cfg, "fake", "rd")) == 2
+
+
+def test_excel_with_triage(api, cfg, monkeypatch):
+    """El triaje llena state y n_cuttlebones; una anotacion manual tiene prioridad."""
+    sepia.download_observations(cfg)
+    sepia.build_tables(cfg)
+    sepia.download_photos(cfg)
+    sepia.make_resized(cfg, 512)
+    cfg.triage = {"provider": "fake", "model": "m1", "prompt_version": "triage_v2",
+                  "requests_per_minute": 100000}
+    monkeypatch.setattr(sepia.triage.time, "sleep", lambda s: None)
+    sepia.run_triage(cfg, provider=FakeProvider())
+    f = sepia.paths(cfg)["annotations"] / "HZ.jsonl"
+    sepia.append_jsonl({"observation_id": 2, "individual": "a", "side": "dorsal",
+                        "state": "egg case", "label_source": "annotator",
+                        "saved_at": "2026-10-28T10:00"}, f)
+    ws = openpyxl.load_workbook(sepia.build_excel(cfg, "t.xlsx"))["identification"]
+    hdr = [c.value for c in ws[1]]
+    rows = {r[1]: dict(zip(hdr, r)) for r in ws.iter_rows(min_row=2, values_only=True)}
+    r1, r2 = rows[1], rows[2]
+    assert r1["state"] == "cuttlebone" and r1["number individuals (cuttlebone)"] == 1
+    assert r1["label_source"] == "gpt" and r1["model_version"] == "m1/triage_v2"
+    assert json.loads(r1["model_prob"])["confidence"] == "high"
+    assert r1["reviewed"] is False
+    assert r2["state"] == "egg case" and r2["label_source"] == "annotator"   # gana la persona

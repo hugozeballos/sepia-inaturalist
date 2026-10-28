@@ -124,6 +124,20 @@ Reglas fijas aplicadas sobre la respuesta del modelo (`apply_rules`, quedan regi
 `rules_applied`): más de 5 huesos → conteo no exacto (lo cuenta una persona); conteo no exacto →
 la confianza no puede ser alta.
 
+
+## Excel de entrega
+
+```python
+!python scripts/build_excel.py --config configs/pilot_a1.yaml
+```
+
+Une, por `observation_id`: registros (`tables/`), anotaciones (`annotations/`) y triaje
+(`outputs/`, modelo y versión de prompt de la sección `triage` del YAML). El triaje llena
+`state` y `number individuals (cuttlebone)` **solo donde no hay anotación manual**: la de una
+persona siempre gana. Las filas llenadas por el modelo quedan con `label_source = gpt`,
+`model_version = <modelo>/<prompt>`, `reviewed = False` y, en `model_prob`, la confianza y si
+el conteo es exacto (`count_possible`). Sin anotaciones hay una fila por registro.
+
 ## Pruebas
 
 ```bash
