@@ -55,7 +55,16 @@ drive.mount('/content/drive')
 !git pull
 !pip install -q -e .
 
-!python scripts/download.py --config configs/pilot79.yaml
+!python scripts/download.py --config configs/pilot_a1.yaml
+```
+
+Para importar `sepia` dentro del notebook (no solo con `!python`), agregar la carpeta `src`
+a la ruta: `pip install -e .` no se ve en el kernel que ya está corriendo hasta reiniciarlo.
+
+```python
+import sys
+sys.path.insert(0, '/content/sepia-inaturalist/src')
+import sepia
 ```
 
 Pasos por separado (en orden: `metadata, tables, photos, resize, check, excel`):
