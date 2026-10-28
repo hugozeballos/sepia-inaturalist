@@ -27,7 +27,10 @@ tests/          pruebas sin internet (API simulada)
 docs/           documentación
 ```
 
-Datos en Drive (`base_dir`):
+Datos en Drive, en `MyDrive/sepia-inaturalist/data/<corrida>/` (el `base_dir` de cada config).
+El código **no** va en esa carpeta: en Colab se clona en `/content/sepia-inaturalist`.
+
+Contenido de cada corrida:
 
 ```
 raw/api_pages/     copia cruda de la API

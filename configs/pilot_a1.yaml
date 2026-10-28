@@ -2,7 +2,7 @@
 # Rectangulo APROXIMADO del sector A1 (Thurso a North Shields, costa este del Reino Unido).
 # No son los limites exactos del PPT de Martin: la asignacion de sectores es una fase posterior.
 # Antes de descargar:  python scripts/download.py --config configs/pilot_a1.yaml --count-only
-base_dir: /content/drive/MyDrive/sepia/data/pilot_a1
+base_dir: /content/drive/MyDrive/sepia-inaturalist/data/pilot_a1
 taxon_id: 151429                 # Sepia officinalis
 bbox: [54.9, -3.6, 58.7, -1.0]   # [sur, oeste, norte, este]
 photo_size: original
