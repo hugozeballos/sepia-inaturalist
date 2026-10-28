@@ -12,6 +12,7 @@ Uso (en Colab, con la clave en los secretos):
 Reanudable: los registros ya clasificados se saltan.
 """
 import argparse
+import os
 import sys
 
 sys.stdout.reconfigure(line_buffering=True)  # en Colab, mostrar el avance al instante
@@ -31,9 +32,11 @@ if not cfg.triage:
 ids = None
 if args.ids:
     if args.ids.endswith(".txt"):
+        if not os.path.exists(args.ids):
+            ap.error(f"no existe el archivo {args.ids}")
         ids = sepia.ids_from_file(args.ids)
     elif args.ids.endswith(".jsonl"):
-        ids = [int(i) for i in sepia.read_jsonl(args.ids)["observation_id"]]
+        ids = [int(i) for i in sepia.triage.load_cases(args.ids)["observation_id"]]
     else:
         ids = [int(x) for x in args.ids.split(",") if x.strip()]
 sepia.run_triage(cfg, limit=args.limit, ids=ids)

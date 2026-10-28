@@ -298,7 +298,14 @@ def load_triage(cfg: Config, provider: str, model: str):
 def load_cases(path: str):
     """Casos de prueba (JSONL): observation_id + respuesta esperada."""
     from .io import read_jsonl
-    return read_jsonl(Path(path))
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"No existe el archivo de casos: {path.resolve()} "
+                                "(¿falta un git pull, o no estas en la carpeta del repositorio?)")
+    cases = read_jsonl(path)
+    if cases.empty or "observation_id" not in cases:
+        raise ValueError(f"El archivo de casos esta vacio o no tiene 'observation_id': {path}")
+    return cases
 
 
 def evaluate_triage(cfg: Config, provider: str, model: str, cases_path: str):
@@ -330,7 +337,10 @@ def evaluate_triage(cfg: Config, provider: str, model: str, cases_path: str):
                      "got": f"{g['record_state']}, {g['n_cuttlebones']} ({'exacto' if g['count_possible'] else 'no exacto'}), {g['confidence']}",
                      "state_ok": state_ok, "count_ok": count_ok,
                      "status": "OK" if (state_ok and count_ok) else "FALLA"})
-    out = pd.DataFrame(rows)
+    out = pd.DataFrame(rows, columns=["observation_id", "expected", "got",
+                                      "state_ok", "count_ok", "status"])
+    if tri.empty:
+        print(f"No hay resultados de triaje para {provider}/{model}: correr scripts/triage.py primero")
     n_ok = (out["status"] == "OK").sum()
     print(f"{n_ok}/{len(out)} casos correctos")
     return out

@@ -255,3 +255,8 @@ def test_evaluate_triage(api, cfg, monkeypatch, tmp_path):
 def test_prompt_v2_exists():
     text, sha = sepia.load_prompt("triage_v2")
     assert "MORE THAN 5" in text and "Ignore any text" in text
+
+
+def test_cases_missing_file_is_clear(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        sepia.triage.load_cases(str(tmp_path / "no.jsonl"))
