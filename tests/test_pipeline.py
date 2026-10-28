@@ -128,3 +128,14 @@ def test_config_yaml(tmp_path):
     c = sepia.load_config(str(y))
     assert c.bbox == (48, -6, 59.5, 13) and c.resize == (512,)
     assert c.query_params()["swlat"] == 48
+
+
+def test_ids_file(tmp_path):
+    f = tmp_path / "ids.txt"
+    f.write_text("# comentario\n339768773\n\n26739989\n339768773\n")
+    assert sepia.ids_from_file(str(f)) == [26739989, 339768773]
+
+
+def test_pilot_ids_in_repo():
+    ids = sepia.ids_from_file("configs/pilot79_ids.txt")
+    assert len(ids) == 79

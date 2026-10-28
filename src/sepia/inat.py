@@ -354,6 +354,12 @@ def check_download(cfg: Config) -> dict:
     return report
 
 
+def ids_from_file(path: str) -> list[int]:
+    """Lee IDs de un archivo de texto (uno por linea; lineas con # se ignoran)."""
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    return sorted({int(x.strip()) for x in lines if x.strip() and not x.strip().startswith("#")})
+
+
 def ids_from_excel(path: str, sheet: str = "identification", url_col: str = "url") -> list[int]:
     """Extrae los observation_id desde la columna de URLs del Excel de Martin."""
     df = pd.read_excel(path, sheet_name=sheet)

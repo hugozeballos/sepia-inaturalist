@@ -33,7 +33,9 @@ def main():
         ap.error(f"pasos desconocidos: {unknown}")
 
     if "metadata" in steps:
-        if cfg.ids_excel:
+        if cfg.ids_file:
+            sepia.download_by_ids(cfg, sepia.ids_from_file(cfg.ids_file), tag="ids")
+        elif cfg.ids_excel:
             sepia.download_by_ids(cfg, sepia.ids_from_excel(cfg.ids_excel), tag="ids")
         else:
             if cfg.bbox is None:

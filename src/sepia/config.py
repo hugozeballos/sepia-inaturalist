@@ -38,7 +38,8 @@ class Config:
     per_page: int = 200                # maximo que permite la API
     user_agent: str = "sepia-inat-research (contact: hzeballosmeneses@gmail.com)"
     # Opcionales para scripts/download.py
-    ids_excel: str | None = None       # si se da, descarga solo esos IDs (piloto)
+    ids_file: str | None = None        # lista de IDs (uno por linea): descarga solo esos (piloto)
+    ids_excel: str | None = None       # alternativa: IDs desde la columna url de un Excel
     resize: tuple[int, ...] = (512, 1024)  # versiones reducidas a generar
 
     def query_params(self) -> dict:

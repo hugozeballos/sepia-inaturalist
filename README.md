@@ -16,7 +16,7 @@ El objetivo es llenar la tabla de Martin: una fila por individuo y por lado (dor
 ## Estructura
 
 ```
-configs/        parámetros de cada corrida (YAML, versionados)
+configs/        parámetros de cada corrida (YAML, versionados) y listas de IDs
 scripts/        comandos que se ejecutan (download.py, build_excel.py)
 src/sepia/      funciones
   config.py     Config y lectura de YAML

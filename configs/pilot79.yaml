@@ -1,6 +1,7 @@
 # Piloto: los 79 registros del Excel de prueba de Martin.
+# Los IDs estan en configs/pilot79_ids.txt (ruta relativa a la raiz del repositorio).
 base_dir: /content/drive/MyDrive/sepia/data/pilot79
-ids_excel: /content/drive/MyDrive/sepia/inputs/iNat_SEPIA_30sept2026.xlsx
+ids_file: configs/pilot79_ids.txt
 taxon_id: 151429          # Sepia officinalis
 photo_size: original
 resize: [512, 1024]       # 512 para GPT, 1024 para la interfaz
