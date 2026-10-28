@@ -5,20 +5,24 @@ Uso:
     python scripts/download.py --config configs/pilot79.yaml
     python scripts/download.py --config configs/full.yaml --steps photos,resize,check
 
-Pasos (en orden): metadata, tables, photos, resize, check, excel.
+Pasos (en orden): metadata, tables, photos, resize, check.
 Todo es reanudable: si se corta, se vuelve a correr el mismo comando.
+
+El Excel NO se genera aqui: es solo una exportacion para Martin y se pide
+aparte con scripts/build_excel.py (o --steps ...,excel).
 """
 import argparse
 
 import sepia
 
 STEPS = ["metadata", "tables", "photos", "resize", "check", "excel"]
+DEFAULT_STEPS = ["metadata", "tables", "photos", "resize", "check"]  # sin excel
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", required=True, help="archivo YAML en configs/")
-    ap.add_argument("--steps", default=",".join(STEPS), help=f"pasos separados por coma: {STEPS}")
+    ap.add_argument("--steps", default=",".join(DEFAULT_STEPS), help=f"pasos separados por coma: {STEPS}")
     ap.add_argument("--count-only", action="store_true", help="solo muestra cuantos registros devuelve la consulta")
     args = ap.parse_args()
 

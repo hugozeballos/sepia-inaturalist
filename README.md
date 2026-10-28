@@ -9,7 +9,7 @@ El objetivo es llenar la tabla de Martin: una fila por individuo y por lado (dor
 - **Una sola descarga.** Los datos se bajan una vez a Google Drive; todo lo demás trabaja desde ahí.
 - **Copia cruda.** Cada respuesta de la API se guarda tal como llega (JSON).
 - **JSON Lines para todo lo demás** (registros, fotos, anotaciones, salidas de modelos). Las anotaciones solo se agregan; vale la última.
-- **El Excel se genera, nunca se edita.** `build_excel` produce en cualquier momento la tabla con el formato de Martin: solo valores, coordenadas numéricas sin modificar.
+- **Se trabaja en JSON Lines; el Excel es solo una exportación.** Se genera cuando se pide, nunca se edita. `build_excel` produce en cualquier momento la tabla con el formato de Martin: solo valores, coordenadas numéricas sin modificar.
 - **Reanudable.** Si una corrida se corta, se vuelve a correr el mismo comando.
 - **Código en git, datos en Drive.** El repositorio no contiene datos, fotos ni claves.
 
@@ -67,7 +67,7 @@ sys.path.insert(0, '/content/sepia-inaturalist/src')
 import sepia
 ```
 
-Pasos por separado (en orden: `metadata, tables, photos, resize, check, excel`):
+Pasos por separado (en orden: `metadata, tables, photos, resize, check`). El Excel no se genera por defecto: es solo una exportación para Martin y se pide con `build_excel.py`.
 
 ```python
 !python scripts/download.py --config configs/full.yaml --count-only
