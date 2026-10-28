@@ -276,3 +276,19 @@ def test_new_prompt_version_is_not_skipped(api, cfg, monkeypatch):
     assert len(prov.calls) == 4
     assert set(sepia.load_triage(cfg, "fake", "pv")["observation_id"]) == {1, 2}
     assert len(sepia.load_triage(cfg, "fake", "pv", prompt_version="triage_v1")) == 2
+
+
+def test_redo(api, cfg, monkeypatch):
+    sepia.download_observations(cfg)
+    sepia.build_tables(cfg)
+    sepia.download_photos(cfg)
+    sepia.make_resized(cfg, 512)
+    monkeypatch.setattr(sepia.triage.time, "sleep", lambda s: None)
+    prov = FakeProvider()
+    cfg.triage = {"provider": "fake", "model": "rd", "requests_per_minute": 100000}
+    sepia.run_triage(cfg, provider=prov, ids=[1, 2])
+    sepia.run_triage(cfg, provider=prov, ids=[1, 2])              # salta
+    sepia.run_triage(cfg, provider=prov, ids=[1], redo=True)      # rehace solo el 1
+    assert len(prov.calls) == 3
+    raw = sepia.read_jsonl(sepia.triage.output_path(cfg, "fake", "rd"))
+    assert len(raw) == 3 and len(sepia.load_triage(cfg, "fake", "rd")) == 2

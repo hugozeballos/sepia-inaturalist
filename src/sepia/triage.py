@@ -194,7 +194,7 @@ def done_ids(path: Path, prompt_sha: str | None = None) -> set[int]:
 
 
 def run_triage(cfg: Config, provider=None, limit: int | None = None,
-               ids: list[int] | None = None) -> dict:
+               ids: list[int] | None = None, redo: bool = False) -> dict:
     """
     Clasifica cada registro con todas sus fotos (version de cfg.triage['image_size'] px).
     Guarda una linea por registro en outputs/triage_<proveedor>_<modelo>.jsonl.
@@ -212,7 +212,10 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None,
 
     obs = read_jsonl(p["tables"] / "observations.jsonl")
     pho = read_jsonl(p["tables"] / "photos.jsonl").sort_values(["observation_id", "position"])
-    skip = done_ids(out, prompt_sha)
+    # Por defecto se saltan los ya clasificados con ESTA version del prompt.
+    # redo=True los vuelve a clasificar: se agregan lineas nuevas (no se borra nada)
+    # y al leer vale la ultima.
+    skip = set() if redo else done_ids(out, prompt_sha)
     todo = [int(i) for i in obs["observation_id"] if int(i) not in skip]
     if ids is not None:                       # solo una lista de registros (casos de prueba)
         wanted = {int(i) for i in ids}
@@ -224,7 +227,8 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None,
         todo = todo[:limit]
     print(f"Triaje con {tc['provider']}/{tc['model']} · prompt {tc['prompt_version']} ({prompt_sha}) "
           f"· razonamiento {tc.get('thinking_level', 'low')} · timeout {tc.get('timeout_s', 120)} s")
-    print(f"{len(skip)} ya clasificados · {len(todo)} por clasificar")
+    print(("modo REHACER: se vuelven a clasificar · " if redo else f"{len(skip)} ya clasificados · ")
+          + f"{len(todo)} por clasificar")
 
     pause = 60.0 / tc["requests_per_minute"]
     stats = {"ok": 0, "error": 0, "input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0}

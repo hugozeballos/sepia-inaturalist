@@ -99,6 +99,9 @@ número de huesos distintos y qué muestra cada foto. Proveedor, modelo, tempera
 del prompt van en la sección `triage` del YAML; cada respuesta se guarda completa con el hash
 del prompt y los tokens usados.
 
+Se saltan los registros ya clasificados **con la misma versión del prompt** (cambiar de versión
+vuelve a clasificar todo). `--redo` fuerza a rehacer: agrega líneas nuevas, no borra; vale la última.
+
 ```python
 import os
 from google.colab import userdata
@@ -106,6 +109,7 @@ os.environ['GEMINI_API_KEY'] = userdata.get('GEMINI_API_KEY')   # secreto de Col
 
 !python scripts/triage.py --config configs/pilot_a1.yaml --limit 5   # prueba
 !python scripts/triage.py --config configs/pilot_a1.yaml             # todo (reanudable)
+!python scripts/triage.py --config configs/pilot_a1.yaml --ids 262274777 --redo   # rehacer uno
 ```
 
 Casos de prueba con respuesta conocida (`configs/triage_hard_cases.jsonl`): varios huesos en una
