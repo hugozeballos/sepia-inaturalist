@@ -217,3 +217,14 @@ def test_triage_retries_overload(api, cfg, monkeypatch):
     sepia.run_triage(cfg, provider=Busy(), limit=2)
     t = sepia.load_triage(cfg, "fake", "busy")
     assert len(t) == 2 and Busy.n == 3   # reintento y luego siguio
+
+
+def test_triage_only_ids(api, cfg, monkeypatch):
+    sepia.download_observations(cfg)
+    sepia.build_tables(cfg)
+    sepia.download_photos(cfg)
+    sepia.make_resized(cfg, 512)
+    cfg.triage = {"provider": "fake", "model": "ids", "requests_per_minute": 100000}
+    monkeypatch.setattr(sepia.triage.time, "sleep", lambda s: None)
+    sepia.run_triage(cfg, provider=FakeProvider(), ids=[2, 5, 999])
+    assert set(sepia.load_triage(cfg, "fake", "ids")["observation_id"]) == {2, 5}

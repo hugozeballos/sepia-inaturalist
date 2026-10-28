@@ -7,6 +7,7 @@ Uso (en Colab, con la clave en los secretos):
     os.environ['GEMINI_API_KEY'] = userdata.get('GEMINI_API_KEY')
     !python scripts/triage.py --config configs/pilot_a1.yaml --limit 5   # prueba
     !python scripts/triage.py --config configs/pilot_a1.yaml             # todo
+    !python scripts/triage.py --config configs/pilot_a1.yaml --ids configs/triage_hard_cases.txt
 
 Reanudable: los registros ya clasificados se saltan.
 """
@@ -20,9 +21,15 @@ import sepia
 ap = argparse.ArgumentParser()
 ap.add_argument("--config", required=True)
 ap.add_argument("--limit", type=int, default=None, help="clasificar solo N registros (prueba)")
+ap.add_argument("--ids", default=None,
+                help="clasificar solo estos IDs: lista separada por comas o archivo .txt (uno por linea)")
 args = ap.parse_args()
 
 cfg = sepia.load_config(args.config)
 if not cfg.triage:
     ap.error("la configuracion no tiene seccion 'triage'")
-sepia.run_triage(cfg, limit=args.limit)
+ids = None
+if args.ids:
+    ids = (sepia.ids_from_file(args.ids) if args.ids.endswith(".txt")
+           else [int(x) for x in args.ids.split(",") if x.strip()])
+sepia.run_triage(cfg, limit=args.limit, ids=ids)

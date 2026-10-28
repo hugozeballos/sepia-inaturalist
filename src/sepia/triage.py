@@ -165,7 +165,8 @@ def done_ids(path: Path) -> set[int]:
     return set(ok["observation_id"].astype(int))
 
 
-def run_triage(cfg: Config, provider=None, limit: int | None = None) -> dict:
+def run_triage(cfg: Config, provider=None, limit: int | None = None,
+               ids: list[int] | None = None) -> dict:
     """
     Clasifica cada registro con todas sus fotos (version de cfg.triage['image_size'] px).
     Guarda una linea por registro en outputs/triage_<proveedor>_<modelo>.jsonl.
@@ -185,6 +186,12 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None) -> dict:
     pho = read_jsonl(p["tables"] / "photos.jsonl").sort_values(["observation_id", "position"])
     skip = done_ids(out)
     todo = [int(i) for i in obs["observation_id"] if int(i) not in skip]
+    if ids is not None:                       # solo una lista de registros (casos de prueba)
+        wanted = {int(i) for i in ids}
+        missing = wanted - set(obs["observation_id"].astype(int))
+        if missing:
+            print(f"No estan en esta descarga: {sorted(missing)}")
+        todo = [i for i in todo if i in wanted]
     if limit:
         todo = todo[:limit]
     print(f"Triaje con {tc['provider']}/{tc['model']} · prompt {tc['prompt_version']} ({prompt_sha}) "
