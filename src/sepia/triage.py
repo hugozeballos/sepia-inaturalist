@@ -190,6 +190,7 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None) -> dict:
             images = [(img_dir / (Path(f).stem + ".jpg")).read_bytes() for f in files["file_name"]]
             if not images:
                 raise FileNotFoundError("registro sin fotos reducidas")
+            t0 = time.time()
             for attempt in range(4):
                 try:
                     result, raw, usage = provider.classify(images, prompt)
@@ -198,10 +199,14 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None) -> dict:
                     if attempt == 3:
                         raise
                     wait = 30 * 2 ** attempt
-                    print(f"  limite de uso; espero {wait} s")
+                    print(f"  limite de uso; espero {wait} s", flush=True)
                     time.sleep(wait)
-            record.update(result=result, raw_response=raw, **usage, error=None)
+            elapsed = round(time.time() - t0, 1)
+            record.update(result=result, raw_response=raw, **usage, elapsed_s=elapsed, error=None)
             stats["ok"] += 1
+            print(f"{n}/{len(todo)} · {oid} · {len(images)} fotos · {result['record_state']}, "
+                  f"{result['n_cuttlebones']} huesos ({result['confidence']}) · {elapsed} s · "
+                  f"{usage.get('input_tokens')}+{usage.get('output_tokens')} tokens", flush=True)
             stats["input_tokens"] += usage.get("input_tokens") or 0
             stats["output_tokens"] += usage.get("output_tokens") or 0
         except RateLimited as e:
@@ -213,10 +218,9 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None) -> dict:
         except Exception as e:
             record.update(result=None, raw_response=None, error=f"{type(e).__name__}: {e}")
             stats["error"] += 1
+            print(f"{n}/{len(todo)} · {oid} · ERROR {type(e).__name__}: {str(e)[:200]}", flush=True)
         record["saved_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
         append_jsonl(record, out)
-        if n % 10 == 0:
-            print(f"{n}/{len(todo)} · {stats}")
         time.sleep(pause)
 
     print(f"Listo: {stats} · salida en {out}")

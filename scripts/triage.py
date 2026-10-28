@@ -11,6 +11,9 @@ Uso (en Colab, con la clave en los secretos):
 Reanudable: los registros ya clasificados se saltan.
 """
 import argparse
+import sys
+
+sys.stdout.reconfigure(line_buffering=True)  # en Colab, mostrar el avance al instante
 
 import sepia
 

@@ -5,6 +5,9 @@ Uso:
     python scripts/build_excel.py --config configs/pilot79.yaml
 """
 import argparse
+import sys
+
+sys.stdout.reconfigure(line_buffering=True)  # en Colab, mostrar el avance al instante
 
 import sepia
 

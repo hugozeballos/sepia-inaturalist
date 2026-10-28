@@ -12,6 +12,9 @@ El Excel NO se genera aqui: es solo una exportacion para Martin y se pide
 aparte con scripts/build_excel.py (o --steps ...,excel).
 """
 import argparse
+import sys
+
+sys.stdout.reconfigure(line_buffering=True)  # en Colab, mostrar el avance al instante
 
 import sepia
 
