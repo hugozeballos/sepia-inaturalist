@@ -67,8 +67,12 @@ a la ruta: `pip install -e .` no se ve en el kernel que ya está corriendo hasta
 ```python
 import sys
 sys.path.insert(0, '/content/sepia-inaturalist/src')
+for m in [m for m in sys.modules if m == 'sepia' or m.startswith('sepia.')]:
+    del sys.modules[m]          # después de un git pull: descartar la versión vieja en memoria
 import sepia
 ```
+
+`importlib.reload(sepia)` no basta: recarga solo el paquete, no sus módulos (`config`, `triage`…).
 
 Pasos por separado (en orden: `metadata, tables, photos, resize, check`). El Excel no se genera por defecto: es solo una exportación para Martin y se pide con `build_excel.py`.
 
