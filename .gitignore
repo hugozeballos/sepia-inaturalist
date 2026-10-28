@@ -1,7 +1,8 @@
 # Datos: viven en Drive, nunca en el repositorio
 data/
 *.jsonl
-!configs/*.jsonl      # casos de prueba y listas versionadas (no son datos)
+# excepcion: casos de prueba y listas versionadas (no son datos)
+!configs/*.jsonl
 *.xlsx
 *.jpg
 *.jpeg
