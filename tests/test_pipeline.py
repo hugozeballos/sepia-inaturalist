@@ -260,3 +260,19 @@ def test_prompt_v2_exists():
 def test_cases_missing_file_is_clear(tmp_path):
     with pytest.raises(FileNotFoundError):
         sepia.triage.load_cases(str(tmp_path / "no.jsonl"))
+
+
+def test_new_prompt_version_is_not_skipped(api, cfg, monkeypatch):
+    sepia.download_observations(cfg)
+    sepia.build_tables(cfg)
+    sepia.download_photos(cfg)
+    sepia.make_resized(cfg, 512)
+    monkeypatch.setattr(sepia.triage.time, "sleep", lambda s: None)
+    prov = FakeProvider()
+    cfg.triage = {"provider": "fake", "model": "pv", "requests_per_minute": 100000, "prompt_version": "triage_v1"}
+    sepia.run_triage(cfg, provider=prov, ids=[1, 2])
+    cfg.triage["prompt_version"] = "triage_v2"
+    sepia.run_triage(cfg, provider=prov, ids=[1, 2])     # no debe saltarlos: otra version
+    assert len(prov.calls) == 4
+    assert set(sepia.load_triage(cfg, "fake", "pv")["observation_id"]) == {1, 2}
+    assert len(sepia.load_triage(cfg, "fake", "pv", prompt_version="triage_v1")) == 2

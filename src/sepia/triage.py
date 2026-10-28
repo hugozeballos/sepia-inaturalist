@@ -182,12 +182,14 @@ def output_path(cfg: Config, provider: str, model: str) -> Path:
     return out / f"triage_{provider}_{model.replace('/', '-')}.jsonl"
 
 
-def done_ids(path: Path) -> set[int]:
-    """IDs ya clasificados sin error (para reanudar)."""
+def done_ids(path: Path, prompt_sha: str | None = None) -> set[int]:
+    """IDs ya clasificados sin error (para reanudar), con la MISMA version del prompt."""
     df = read_jsonl(path)
     if df.empty:
         return set()
     ok = df[df["error"].isna()] if "error" in df else df
+    if prompt_sha is not None and "prompt_sha" in ok:
+        ok = ok[ok["prompt_sha"] == prompt_sha]
     return set(ok["observation_id"].astype(int))
 
 
@@ -210,7 +212,7 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None,
 
     obs = read_jsonl(p["tables"] / "observations.jsonl")
     pho = read_jsonl(p["tables"] / "photos.jsonl").sort_values(["observation_id", "position"])
-    skip = done_ids(out)
+    skip = done_ids(out, prompt_sha)
     todo = [int(i) for i in obs["observation_id"] if int(i) not in skip]
     if ids is not None:                       # solo una lista de registros (casos de prueba)
         wanted = {int(i) for i in ids}
@@ -279,13 +281,24 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None,
     return stats
 
 
-def load_triage(cfg: Config, provider: str, model: str):
-    """Resultados del triaje como tabla plana (una fila por registro, vale la ultima)."""
+def load_triage(cfg: Config, provider: str, model: str, prompt_version: str | None = None):
+    """
+    Resultados del triaje como tabla plana (una fila por registro, vale la ultima).
+    prompt_version: si se indica, solo esa version (p. ej. 'triage_v2'); por defecto
+    la de cfg.triage, si existe.
+    """
     import pandas as pd
+    if prompt_version is None and cfg.triage:
+        prompt_version = cfg.triage.get("prompt_version")
     df = read_jsonl(output_path(cfg, provider, model))
     if df.empty:
         return df
-    df = df[df["error"].isna()].sort_values("saved_at").drop_duplicates("observation_id", keep="last")
+    df = df[df["error"].isna()]
+    if prompt_version and "prompt_version" in df:
+        df = df[df["prompt_version"] == prompt_version]
+    if df.empty:
+        return df
+    df = df.sort_values("saved_at").drop_duplicates("observation_id", keep="last")
     flat = pd.json_normalize(df["result"].tolist())
     flat.insert(0, "observation_id", df["observation_id"].values)
     return flat
