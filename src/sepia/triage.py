@@ -79,23 +79,28 @@ class FatalProviderError(Exception):
 
 
 FATAL_MARKERS = ("404", "NOT_FOUND", "401", "UNAUTHENTICATED", "403",
-                 "PERMISSION_DENIED", "API_KEY_INVALID")
+                 "PERMISSION_DENIED", "API_KEY_INVALID", "INVALID_ARGUMENT")
 
 
 class GeminiProvider:
     """Gemini via google-genai. Requiere GEMINI_API_KEY en el entorno."""
     name = "gemini"
 
-    def __init__(self, model: str, temperature: float = 0.0):
+    def __init__(self, model: str, temperature: float = 0.0,
+                 thinking_level: str | None = "low", timeout_s: int = 120):
         from google import genai
         from google.genai import types
         key = os.environ.get("GEMINI_API_KEY")
         if not key:
             raise RuntimeError("Falta la variable de entorno GEMINI_API_KEY")
-        self._client = genai.Client(api_key=key)
+        # timeout: ninguna llamada puede quedar colgada mas de timeout_s segundos
+        self._client = genai.Client(api_key=key,
+                                    http_options=types.HttpOptions(timeout=int(timeout_s * 1000)))
         self._types = types
         self.model = model
         self.temperature = temperature
+        # razonamiento del modelo: MINIMAL, LOW, MEDIUM, HIGH (None = lo que decida el modelo)
+        self.thinking_level = thinking_level.upper() if thinking_level else None
 
     def classify(self, images: list[bytes], prompt: str) -> tuple[dict, str, dict]:
         t = self._types
@@ -112,6 +117,8 @@ class GeminiProvider:
                     temperature=self.temperature,
                     response_mime_type="application/json",
                     response_schema=TriageResult,
+                    thinking_config=(t.ThinkingConfig(thinking_level=self.thinking_level)
+                                     if self.thinking_level else None),
                 ),
             )
         except Exception as e:  # el SDK usa varias clases de error
@@ -123,14 +130,17 @@ class GeminiProvider:
             raise
         u = r.usage_metadata
         usage = {"input_tokens": getattr(u, "prompt_token_count", None),
-                 "output_tokens": getattr(u, "candidates_token_count", None)}
+                 "output_tokens": getattr(u, "candidates_token_count", None),
+                 "thinking_tokens": getattr(u, "thoughts_token_count", None)}
         parsed = TriageResult.model_validate_json(r.text).model_dump()
         return parsed, r.text, usage
 
 
-def make_provider(provider: str, model: str, temperature: float = 0.0):
+def make_provider(provider: str, model: str, temperature: float = 0.0, **opts):
     if provider == "gemini":
-        return GeminiProvider(model, temperature)
+        return GeminiProvider(model, temperature,
+                              thinking_level=opts.get("thinking_level", "low"),
+                              timeout_s=opts.get("timeout_s", 120))
     raise ValueError(f"Proveedor no soportado todavia: {provider}")
 
 
@@ -163,7 +173,9 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None) -> dict:
           "prompt_version": "triage_v1", "image_size": 512, "requests_per_minute": 8,
           **(cfg.triage or {})}
     prompt, prompt_sha = load_prompt(tc["prompt_version"])
-    provider = provider or make_provider(tc["provider"], tc["model"], tc["temperature"])
+    provider = provider or make_provider(tc["provider"], tc["model"], tc["temperature"],
+                                         thinking_level=tc.get("thinking_level", "low"),
+                                         timeout_s=tc.get("timeout_s", 120))
     p = paths(cfg)
     img_dir = p["base"] / "photos" / f"{tc['image_size']}px"
     out = output_path(cfg, tc["provider"], tc["model"])
@@ -174,18 +186,20 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None) -> dict:
     todo = [int(i) for i in obs["observation_id"] if int(i) not in skip]
     if limit:
         todo = todo[:limit]
-    print(f"Triaje con {tc['provider']}/{tc['model']} · prompt {tc['prompt_version']} ({prompt_sha})")
+    print(f"Triaje con {tc['provider']}/{tc['model']} · prompt {tc['prompt_version']} ({prompt_sha}) "
+          f"· razonamiento {tc.get('thinking_level', 'low')} · timeout {tc.get('timeout_s', 120)} s")
     print(f"{len(skip)} ya clasificados · {len(todo)} por clasificar")
 
     pause = 60.0 / tc["requests_per_minute"]
-    stats = {"ok": 0, "error": 0, "input_tokens": 0, "output_tokens": 0}
+    stats = {"ok": 0, "error": 0, "input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0}
     for n, oid in enumerate(todo, start=1):
         files = pho.loc[pho["observation_id"] == oid, ["photo_id", "file_name"]]
         photo_ids = [int(x) for x in files["photo_id"]]
         record = {"observation_id": oid, "photo_ids": photo_ids,
                   "provider": tc["provider"], "model": tc["model"],
                   "temperature": tc["temperature"], "prompt_version": tc["prompt_version"],
-                  "prompt_sha": prompt_sha, "image_size": tc["image_size"]}
+                  "prompt_sha": prompt_sha, "image_size": tc["image_size"],
+                  "thinking_level": tc.get("thinking_level", "low")}
         try:
             images = [(img_dir / (Path(f).stem + ".jpg")).read_bytes() for f in files["file_name"]]
             if not images:
@@ -206,9 +220,11 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None) -> dict:
             stats["ok"] += 1
             print(f"{n}/{len(todo)} · {oid} · {len(images)} fotos · {result['record_state']}, "
                   f"{result['n_cuttlebones']} huesos ({result['confidence']}) · {elapsed} s · "
-                  f"{usage.get('input_tokens')}+{usage.get('output_tokens')} tokens", flush=True)
+                  f"{usage.get('input_tokens')}+{usage.get('output_tokens')} tokens "
+                  f"(+{usage.get('thinking_tokens') or 0} razonamiento)", flush=True)
             stats["input_tokens"] += usage.get("input_tokens") or 0
             stats["output_tokens"] += usage.get("output_tokens") or 0
+            stats["thinking_tokens"] += usage.get("thinking_tokens") or 0
         except RateLimited as e:
             print(f"Limite de uso persistente (posible limite diario). Se detiene; reanudar mas tarde.\n  {e}")
             break

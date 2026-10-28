@@ -16,3 +16,5 @@ triage:
   prompt_version: triage_v1     # src/sepia/prompts/triage_v1.txt
   image_size: 512               # usa photos/512px
   requests_per_minute: 8        # por debajo del limite del nivel gratuito
+  thinking_level: low           # razonamiento del modelo: minimal, low, medium, high
+  timeout_s: 120                # tiempo maximo por llamada; si se pasa, queda como error y se reintenta al relanzar
