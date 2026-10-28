@@ -11,7 +11,7 @@ resize: [512, 1024]
 # Triaje (scripts/triage.py). Clave en la variable de entorno GEMINI_API_KEY.
 triage:
   provider: gemini
-  model: gemini-2.5-flash       # fijar la version; ver modelos gratuitos en Google AI Studio
+  model: gemini-3.8-flash       # 2.5-flash ya no esta disponible para cuentas nuevas (oct 2026)
   temperature: 0
   prompt_version: triage_v1     # src/sepia/prompts/triage_v1.txt
   image_size: 512               # usa photos/512px

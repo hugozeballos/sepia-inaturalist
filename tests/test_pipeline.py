@@ -176,3 +176,22 @@ def test_triage_resume(api, cfg, monkeypatch):
 def test_prompt_versioned():
     text, sha = sepia.load_prompt("triage_v1")
     assert "DISTINCT cuttlebones" in text and len(sha) == 12
+
+
+def test_triage_stops_on_fatal(api, cfg, monkeypatch):
+    sepia.download_observations(cfg)
+    sepia.build_tables(cfg)
+    sepia.download_photos(cfg)
+    sepia.make_resized(cfg, 512)
+    cfg.triage = {"provider": "fake", "model": "gone", "requests_per_minute": 100000}
+    monkeypatch.setattr(sepia.triage.time, "sleep", lambda s: None)
+
+    class Gone:
+        calls = 0
+        def classify(self, images, prompt):
+            Gone.calls += 1
+            raise sepia.triage.FatalProviderError("404 NOT_FOUND model gone")
+
+    sepia.run_triage(cfg, provider=Gone())
+    assert Gone.calls == 1                       # se detuvo al primer error de configuracion
+    assert sepia.triage.done_ids(sepia.triage.output_path(cfg, "fake", "gone")) == set()

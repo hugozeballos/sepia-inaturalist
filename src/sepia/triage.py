@@ -73,6 +73,15 @@ class RateLimited(Exception):
     """El proveedor rechazo por limite de uso (por minuto o diario)."""
 
 
+class FatalProviderError(Exception):
+    """Error de configuracion (modelo inexistente, clave invalida, sin permiso).
+    No se arregla reintentando: la corrida se detiene al primer caso."""
+
+
+FATAL_MARKERS = ("404", "NOT_FOUND", "401", "UNAUTHENTICATED", "403",
+                 "PERMISSION_DENIED", "API_KEY_INVALID")
+
+
 class GeminiProvider:
     """Gemini via google-genai. Requiere GEMINI_API_KEY en el entorno."""
     name = "gemini"
@@ -109,6 +118,8 @@ class GeminiProvider:
             msg = str(e)
             if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
                 raise RateLimited(msg) from e
+            if any(m in msg for m in FATAL_MARKERS):
+                raise FatalProviderError(msg) from e
             raise
         u = r.usage_metadata
         usage = {"input_tokens": getattr(u, "prompt_token_count", None),
@@ -195,6 +206,9 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None) -> dict:
             stats["output_tokens"] += usage.get("output_tokens") or 0
         except RateLimited as e:
             print(f"Limite de uso persistente (posible limite diario). Se detiene; reanudar mas tarde.\n  {e}")
+            break
+        except FatalProviderError as e:
+            print(f"Error de configuracion: se detiene (revisar modelo o clave en el YAML / secretos).\n  {e}")
             break
         except Exception as e:
             record.update(result=None, raw_response=None, error=f"{type(e).__name__}: {e}")
