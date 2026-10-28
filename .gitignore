@@ -1,0 +1,19 @@
+# Datos: viven en Drive, nunca en el repositorio
+data/
+*.jsonl
+*.xlsx
+*.jpg
+*.jpeg
+*.png
+!docs/**/*.png
+
+# Secretos
+.env
+*.key
+
+# Python
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv/
+.ipynb_checkpoints/

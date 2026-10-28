@@ -1,0 +1,10 @@
+# Descarga completa. PENDIENTE: bbox y fechas desde el PPT de sectores de Martin
+# (SepiaFORhugo21oct2026.pptx). No correr hasta completarlos.
+base_dir: /content/drive/MyDrive/sepia/data/full
+taxon_id: 151429          # Sepia officinalis
+bbox: null                # [sur, oeste, norte, este] en grados decimales
+d1: null                  # 'YYYY-MM-DD'
+d2: null
+quality_grade: null       # 'research' si se decide solo Research Grade
+photo_size: original
+resize: [512, 1024]
