@@ -446,6 +446,9 @@ def test_crop_box_roundtrip(tmp_path):
     from sepia import annotate as an
     box = an.to_crop_box({"x": 256, "y": 192, "width": 512, "height": 384}, 1024, 768)
     assert box == {"x0": 0.25, "y0": 0.25, "x1": 0.75, "y1": 0.75}
+    # dibujado de derecha a izquierda / de abajo hacia arriba, y saliendose de la foto
+    assert an.to_crop_box({"x": 768, "y": 576, "width": -512, "height": -384}, 1024, 768) == box
+    assert an.to_crop_box({"x": 900, "y": -50, "width": 300, "height": 100}, 1024, 768)["x1"] == 1.0
     assert an.from_crop_box(box, 2048, 1536) == {"x": 512, "y": 384, "width": 1024, "height": 768}
     f = tmp_path / "o.jpg"
     Image.new("RGB", (2048, 1536)).save(f)

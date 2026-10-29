@@ -61,11 +61,16 @@ KEYS = {"individual": ["observation_id", "photo_id", "individual"],
 # --------------------------------------------------------------------------
 
 def to_crop_box(bbox: dict, width: int, height: int) -> dict:
-    """Recuadro en pixeles {x, y, width, height} -> relativo {x0, y0, x1, y1} en 0-1."""
-    x0, y0 = max(0.0, bbox["x"] / width), max(0.0, bbox["y"] / height)
-    x1 = min(1.0, (bbox["x"] + bbox["width"]) / width)
-    y1 = min(1.0, (bbox["y"] + bbox["height"]) / height)
-    return {k: round(v, 4) for k, v in (("x0", x0), ("y0", y0), ("x1", x1), ("y1", y1))}
+    """
+    Recuadro en pixeles {x, y, width, height} -> relativo {x0, y0, x1, y1} en 0-1.
+    Acepta recuadros dibujados en cualquier direccion (ancho o alto negativos) y
+    recorta lo que se sale de la foto.
+    """
+    xa, xb = sorted((bbox["x"], bbox["x"] + bbox["width"]))
+    ya, yb = sorted((bbox["y"], bbox["y"] + bbox["height"]))
+    clip = lambda v: min(1.0, max(0.0, v))
+    return {"x0": round(clip(xa / width), 4), "y0": round(clip(ya / height), 4),
+            "x1": round(clip(xb / width), 4), "y1": round(clip(yb / height), 4)}
 
 
 def from_crop_box(box: dict, width: int, height: int) -> dict:
@@ -91,7 +96,8 @@ def parse_crop_box(text: str):
     except ValueError:
         raise ValueError("crop box must be 'x0, y0, x1, y1' (numbers 0-1) or empty")
     if not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
-        raise ValueError("crop box: need 0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1")
+        raise ValueError(f"crop box '{text}': need 0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1 "
+                         "(draw again or clear with ✕)")
     return {"x0": round(x0, 4), "y0": round(y0, 4), "x1": round(x1, 4), "y1": round(y1, 4)}
 
 
@@ -465,10 +471,15 @@ class AnnotationApp:
         if not mine or not getattr(self, "_box_size", None):
             return
         new = mine[-1]
+        box = to_crop_box(new, *self._box_size)
+        if box["x1"] - box["x0"] < 0.01 or box["y1"] - box["y0"] < 0.01:
+            self.msg.value = ("<b style='color:#b00'>Box too small or outside the photo: "
+                              "drag again</b>")
+            return
         self._box_updating = True                     # evitar recursion al reescribir bboxes
         self.bbox.bboxes = [b for b in boxes if b.get("label") != letter] + [new]
         self._box_updating = False
-        self.crop.value = format_crop_box(to_crop_box(new, *self._box_size))
+        self.crop.value = format_crop_box(box)
         self.draw_btn.value = False                   # vuelve a modo solo-ver
         self.msg.value = f"Box for <b>{letter}</b> ready: press Save"
 
