@@ -210,10 +210,11 @@ class AnnotationApp:
         app.show()
     Retoma en la primera foto pendiente. No muestra resultados de modelos (anotacion a ciegas).
     Tamano de la foto: image_width / image_height (maximos, p. ej. "400px", "480px").
+    Registros con varias fotos: arriba se ven todas en miniatura (thumb_px); clic = ir a esa foto.
     """
 
     def __init__(self, cfg: Config, annotator: str, round_=None, ids=None, image_px=1024,
-                 image_width="480px", image_height="560px"):
+                 image_width="480px", image_height="560px", thumb_px="140px"):
         import ipywidgets as w
         self.w, self.cfg, self.annotator, self.round = w, cfg, annotator, round_
         self.queue = work_queue(cfg, ids)
@@ -221,11 +222,15 @@ class AnnotationApp:
             raise RuntimeError("No hay fotos: correr la descarga (tables y photos) primero")
         base = paths(cfg)["base"] / "photos"
         self.photo_dirs = [base / f"{image_px}px", paths(cfg)["photos"]]
+        self.thumb_dirs = [base / "512px"] + self.photo_dirs      # miniaturas: la version liviana
+        self.thumb_px = thumb_px
+        self._thumb_cache = {}
         self.events = load_events(cfg)
         self.i = first_pending(self.queue, self.events) or 0
 
         # --- widgets ---
         self.header = w.HTML()
+        self.strip = w.HBox(layout=w.Layout(flex_flow="row wrap"))   # todas las fotos del registro
         # Ancho y alto maximos: las fotos verticales tampoco se salen de la pantalla
         self.image = w.Image(format="jpeg", layout=w.Layout(
             max_width=image_width, max_height=image_height, object_fit="contain"))
@@ -268,7 +273,8 @@ class AnnotationApp:
         self.inputs["epibionts"].observe(lambda ch: self._visibility(), names="value")
 
         form = w.VBox([self.letter] + list(self.inputs.values()))
-        self.box = w.VBox([self.header, w.HBox([self.image, w.VBox([self.table, form])]),
+        self.box = w.VBox([self.header, self.strip,
+                           w.HBox([self.image, w.VBox([self.table, form])]),
                            self.buttons, self.msg])
         self._render()
 
@@ -290,13 +296,41 @@ class AnnotationApp:
     def _reload(self):
         self.events = load_events(self.cfg)
 
-    def _photo_bytes(self):
-        name = Path(self.row["file_name"]).stem + ".jpg"
-        for d in self.photo_dirs:
-            for f in (d / name, d / self.row["file_name"]):
+    @staticmethod
+    def _read_photo(file_name, dirs):
+        name = Path(file_name).stem + ".jpg"
+        for d in dirs:
+            for f in (d / name, d / file_name):
                 if f.exists():
                     return f.read_bytes()
         return b""
+
+    def _photo_bytes(self):
+        return self._read_photo(self.row["file_name"], self.photo_dirs)
+
+    def _render_strip(self, oid, done):
+        """Miniaturas de todas las fotos del registro; clic = ir a esa foto."""
+        w = self.w
+        rows = self.queue.index[self.queue["observation_id"] == oid]
+        if len(rows) < 2:
+            self.strip.children = ()
+            return
+        items = []
+        for j in rows:
+            r = self.queue.loc[j]
+            fn = r["file_name"]
+            if fn not in self._thumb_cache:
+                self._thumb_cache[fn] = self._read_photo(fn, self.thumb_dirs)
+            img = w.Image(value=self._thumb_cache[fn], format="jpeg", layout=w.Layout(
+                max_width=self.thumb_px, max_height=self.thumb_px, object_fit="contain",
+                border="3px solid #1a73e8" if j == self.i else "3px solid transparent"))
+            mark = " ✓" if (int(r["observation_id"]), int(r["photo_id"])) in done else ""
+            b = w.Button(description=f"Photo {int(r['position'])}{mark}",
+                         button_style="info" if j == self.i else "",
+                         layout=w.Layout(width=self.thumb_px))
+            b.on_click(lambda _, j=j: self._safe(lambda: self._go(int(j))))
+            items.append(w.VBox([img, b], layout=w.Layout(margin="0 6px 6px 0")))
+        self.strip.children = items
 
     def _individuals_here(self):
         d = self.events["individual"]
@@ -328,6 +362,7 @@ class AnnotationApp:
             f"{int(r['n_photos'])} (id {pid}) · {status}</h3>"
             f"{r['observed_on']} · {r['place_guess']} · progress: {n_done}/{len(self.queue)} photos")
         self.image.value = self._photo_bytes()
+        self._render_strip(oid, done)
 
         here = self._individuals_here()
         empty = self.events["empty_photo"]

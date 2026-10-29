@@ -384,6 +384,11 @@ def test_annotation_app_smoke(api, cfg):
     _ready(cfg)
     app = sepia.AnnotationApp(cfg, annotator="HZ", round_=1)
     assert app.row["photo_id"] == 11 and len(app.image.value) > 0
+    assert len(app.strip.children) == 2                           # miniaturas de las 2 fotos
+    app.strip.children[1].children[1].click()                     # clic en la miniatura 2
+    assert app.row["photo_id"] == 12
+    app.strip.children[0].children[1].click()
+    assert app.row["photo_id"] == 11
     app.inputs["state"].value = "cuttlebone"
     assert app.inputs["side"].layout.display is None              # visible para huesos
     assert app.inputs["barnacles_n"].layout.display == "none"     # oculto sin epibiontes
