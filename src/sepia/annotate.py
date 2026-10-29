@@ -209,10 +209,11 @@ class AnnotationApp:
         app = AnnotationApp(cfg, annotator="HZ", round_=1)
         app.show()
     Retoma en la primera foto pendiente. No muestra resultados de modelos (anotacion a ciegas).
+    Tamano de la foto: image_width / image_height (maximos, p. ej. "400px", "480px").
     """
 
     def __init__(self, cfg: Config, annotator: str, round_=None, ids=None, image_px=1024,
-                 image_width="720px"):
+                 image_width="480px", image_height="560px"):
         import ipywidgets as w
         self.w, self.cfg, self.annotator, self.round = w, cfg, annotator, round_
         self.queue = work_queue(cfg, ids)
@@ -225,7 +226,9 @@ class AnnotationApp:
 
         # --- widgets ---
         self.header = w.HTML()
-        self.image = w.Image(format="jpeg", layout=w.Layout(width=image_width))
+        # Ancho y alto maximos: las fotos verticales tampoco se salen de la pantalla
+        self.image = w.Image(format="jpeg", layout=w.Layout(
+            max_width=image_width, max_height=image_height, object_fit="contain"))
         self.table = w.HTML()
         self.letter = w.Dropdown(description="Individual", layout=w.Layout(width="260px"))
         self.inputs = {}
