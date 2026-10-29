@@ -148,6 +148,11 @@ y **Save ▶** (guarda y pasa a la siguiente foto) o **Save + another here** (ot
 para huesos; los de picorocos solo con epibiontes = yes. Otros botones: *Photo without
 individuals*, *Exclude record* (con motivo), *Delete individual*, anterior/siguiente, ir a un ID.
 
+**Recuadros (opcional):** con `jupyter-bbox-widget` instalado (`!pip install -q jupyter-bbox-widget`),
+se elige la letra y se arrastra un rectángulo sobre la foto; al guardar queda en `crop_box` como
+coordenadas relativas `{x0, y0, x1, y1}` (0-1) sobre la foto enderezada (EXIF aplicado), válidas
+para cualquier tamaño. `sepia.annotate.crop_photo(ruta, crop_box)` recorta el individuo.
+
 Se guarda en `annotations/manual_<anotador>.jsonl`, una línea por acción (`kind`: `individual`,
 `empty_photo`, `exclude_record`), con `schema_version`, `annotator`, `round` y `saved_at` (UTC).
 Nada se borra: corregir es guardar de nuevo; para cada clave vale la última línea. Un anotador =

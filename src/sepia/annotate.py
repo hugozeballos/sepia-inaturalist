@@ -56,6 +56,35 @@ KEYS = {"individual": ["observation_id", "photo_id", "individual"],
 
 
 # --------------------------------------------------------------------------
+# Recuadros (crop_box): coordenadas relativas 0-1 sobre la foto ya enderezada
+# (EXIF aplicado), asi sirven para cualquier tamano: 512 px, 1024 px u original.
+# --------------------------------------------------------------------------
+
+def to_crop_box(bbox: dict, width: int, height: int) -> dict:
+    """Recuadro en pixeles {x, y, width, height} -> relativo {x0, y0, x1, y1} en 0-1."""
+    x0, y0 = max(0.0, bbox["x"] / width), max(0.0, bbox["y"] / height)
+    x1 = min(1.0, (bbox["x"] + bbox["width"]) / width)
+    y1 = min(1.0, (bbox["y"] + bbox["height"]) / height)
+    return {k: round(v, 4) for k, v in (("x0", x0), ("y0", y0), ("x1", x1), ("y1", y1))}
+
+
+def from_crop_box(box: dict, width: int, height: int) -> dict:
+    """Relativo {x0, y0, x1, y1} -> pixeles {x, y, width, height} para una foto de ese tamano."""
+    return {"x": box["x0"] * width, "y": box["y0"] * height,
+            "width": (box["x1"] - box["x0"]) * width, "height": (box["y1"] - box["y0"]) * height}
+
+
+def crop_photo(path, box: dict):
+    """Recorta un individuo de una foto (cualquier tamano). Devuelve una imagen PIL."""
+    from PIL import Image, ImageOps
+    with Image.open(path) as im:
+        im = ImageOps.exif_transpose(im).convert("RGB")   # igual que las versiones reducidas
+        W, H = im.size
+        return im.crop((round(box["x0"] * W), round(box["y0"] * H),
+                        round(box["x1"] * W), round(box["y1"] * H)))
+
+
+# --------------------------------------------------------------------------
 # Lectura y escritura
 # --------------------------------------------------------------------------
 
@@ -76,12 +105,17 @@ def _write(cfg, annotator, kind, record, round_=None):
     return line
 
 
-def save_individual(cfg, annotator, observation_id, photo_id, individual, values, round_=None):
-    """Guarda (o corrige) un individuo en una foto. values: dict con campos de FIELDS."""
+def save_individual(cfg, annotator, observation_id, photo_id, individual, values, round_=None,
+                    crop_box=None):
+    """
+    Guarda (o corrige) un individuo en una foto. values: dict con campos de FIELDS.
+    crop_box (opcional): recuadro relativo {x0, y0, x1, y1}, ver to_crop_box.
+    """
     values = {k: v for k, v in values.items() if k in FIELD_NAMES}
     return _write(cfg, annotator, "individual",
                   {"observation_id": int(observation_id), "photo_id": int(photo_id),
-                   "individual": individual, "deleted": False, **values}, round_)
+                   "individual": individual, "deleted": False, **values,
+                   "crop_box": crop_box}, round_)
 
 
 def delete_individual(cfg, annotator, observation_id, photo_id, individual, round_=None):
@@ -215,10 +249,12 @@ class AnnotationApp:
     Retoma en la primera foto pendiente. No muestra resultados de modelos (anotacion a ciegas).
     Tamano de la foto: image_width / image_height (maximos, p. ej. "400px", "480px").
     Registros con varias fotos: arriba se ven todas en miniatura (thumb_px); clic = ir a esa foto.
+    Recuadros (opcional, boxes=True): elegir la letra y arrastrar un rectangulo sobre la foto;
+    se guarda en crop_box al guardar el individuo. Sin recuadro, crop_box queda vacio.
     """
 
     def __init__(self, cfg: Config, annotator: str, round_=None, ids=None, image_px=1024,
-                 image_width="480px", image_height="560px", thumb_px="140px"):
+                 image_width="480px", image_height="560px", thumb_px="140px", boxes=True):
         import ipywidgets as w
         self.w, self.cfg, self.annotator, self.round = w, cfg, annotator, round_
         self.queue = work_queue(cfg, ids)
@@ -238,6 +274,21 @@ class AnnotationApp:
         # Ancho y alto maximos: las fotos verticales tampoco se salen de la pantalla
         self.image = w.Image(format="jpeg", layout=w.Layout(
             max_width=image_width, max_height=image_height, object_fit="contain"))
+        # Recuadros opcionales (jupyter-bbox-widget). Si no esta instalado: foto sin recuadros.
+        self.bbox = None
+        if boxes:
+            try:
+                from jupyter_bbox_widget import BBoxWidget
+                try:                                   # Colab: habilitar widgets externos
+                    from google.colab import output
+                    output.enable_custom_widget_manager()
+                except ImportError:
+                    pass
+                self.bbox = BBoxWidget(hide_buttons=True, layout=w.Layout(width=image_width))
+            except ImportError:
+                print("AVISO: falta jupyter-bbox-widget; la foto se muestra sin recuadros "
+                      "(pip install jupyter-bbox-widget)")
+        self.viewer = self.bbox if self.bbox is not None else self.image
         self.table = w.HTML()
         self.letter = w.Dropdown(description="Individual", layout=w.Layout(width="260px"))
         self.inputs = {}
@@ -280,6 +331,8 @@ class AnnotationApp:
             self.msg,
         ], layout=col)
         self.letter.observe(lambda ch: self._safe(self._load_letter), names="value")
+        if self.bbox is not None:      # el recuadro que se dibuje lleva la letra elegida
+            self.letter.observe(lambda ch: setattr(self.bbox, "label", ch["new"] or ""), names="value")
         self._loading = False
         self.inputs["state"].observe(lambda ch: self._safe(lambda: self._on_state(ch)), names="value")
         self.inputs["epibionts"].observe(lambda ch: self._visibility(), names="value")
@@ -287,7 +340,7 @@ class AnnotationApp:
         form = w.VBox([self.table, self.letter] + list(self.inputs.values()),
                       layout=w.Layout(margin="0 12px"))
         self.box = w.VBox([self.header, self.strip,
-                           w.HBox([self.image, form, self.buttons])])
+                           w.HBox([self.viewer, form, self.buttons])])
         self._render()
 
     # --- utilidades ---
@@ -319,6 +372,48 @@ class AnnotationApp:
 
     def _photo_bytes(self):
         return self._read_photo(self.row["file_name"], self.photo_dirs)
+
+    def _photo_path(self):
+        name = Path(self.row["file_name"]).stem + ".jpg"
+        for d in self.photo_dirs:
+            for f in (d / name, d / self.row["file_name"]):
+                if f.exists():
+                    return f
+        return None
+
+    def _image_size(self, path):
+        from PIL import Image, ImageOps
+        with Image.open(path) as im:
+            return ImageOps.exif_transpose(im).size
+
+    def _render_boxes(self, here, options):
+        """Muestra en la foto los recuadros ya guardados de esta foto."""
+        path = self._photo_path()
+        if self.bbox is None or path is None:
+            return
+        W, H = self._image_size(path)
+        self._box_size = (W, H)
+        self.bbox.classes = [v for _, v in options]
+        self.bbox.image = str(path)
+        boxes = []
+        if len(here) and "crop_box" in here:
+            for r in here.itertuples(index=False):
+                cb = getattr(r, "crop_box", None)
+                if isinstance(cb, dict):
+                    boxes.append({**from_crop_box(cb, W, H), "label": r.individual})
+        self.bbox.bboxes = boxes
+
+    def _drawn_box(self, letter):
+        """Ultimo recuadro dibujado con esa letra, en coordenadas relativas (o None)."""
+        if self.bbox is None:
+            return None
+        mine = [b for b in self.bbox.bboxes if b.get("label") == letter]
+        if not mine or not getattr(self, "_box_size", None):
+            return None
+        b = mine[-1]
+        if b["width"] <= 1 or b["height"] <= 1:
+            return None
+        return to_crop_box(b, *self._box_size)
 
     def _render_strip(self, oid, done):
         """Miniaturas de todas las fotos del registro; clic = ir a esa foto."""
@@ -393,7 +488,10 @@ class AnnotationApp:
         opts = [(f"{l} (this photo)" if l in here_letters else f"{l} (other photo)", l)
                 for l in letters] + [(f"{new} (new)", new)]
         self.letter.options = opts
+        self._render_boxes(here, opts)
         self.letter.value = sorted(here_letters)[0] if here_letters else new
+        if self.bbox is not None:
+            self.bbox.label = self.letter.value
         self._load_letter()
         if not keep_msg:
             self.msg.value = ""
@@ -460,7 +558,8 @@ class AnnotationApp:
         if ((empty["observation_id"] == r["observation_id"]) & (empty["photo_id"] == r["photo_id"])).any():
             mark_empty_photo(self.cfg, self.annotator, r["observation_id"], r["photo_id"], False, self.round)
         save_individual(self.cfg, self.annotator, r["observation_id"], r["photo_id"],
-                        self.letter.value, vals, self.round)
+                        self.letter.value, vals, self.round,
+                        crop_box=self._drawn_box(self.letter.value))
         letter = self.letter.value
         self._reload()
         self._render()

@@ -439,3 +439,35 @@ def test_saved_blank_stays_blank(api, cfg):
     app._go(0)
     assert app.letter.value == "a"
     assert app.inputs["bitemarks"].value is None and app.inputs["epibionts"].value == "yes"
+
+
+def test_crop_box_roundtrip(tmp_path):
+    """Recuadro relativo: sirve igual en 1024 px y en el original (y respeta EXIF)."""
+    from sepia import annotate as an
+    box = an.to_crop_box({"x": 256, "y": 192, "width": 512, "height": 384}, 1024, 768)
+    assert box == {"x0": 0.25, "y0": 0.25, "x1": 0.75, "y1": 0.75}
+    assert an.from_crop_box(box, 2048, 1536) == {"x": 512, "y": 384, "width": 1024, "height": 768}
+    f = tmp_path / "o.jpg"
+    Image.new("RGB", (2048, 1536)).save(f)
+    assert an.crop_photo(f, box).size == (1024, 768)
+
+
+def test_annotation_app_boxes(api, cfg):
+    """Un recuadro dibujado con la letra elegida se guarda en crop_box y vuelve a aparecer."""
+    pytest.importorskip("jupyter_bbox_widget")
+    _ready(cfg)
+    app = sepia.AnnotationApp(cfg, annotator="HZ")
+    assert app.bbox is not None and app.bbox.label == "a"
+    W, H = app._box_size
+    app.bbox.bboxes = [{"x": 0, "y": 0, "width": W / 2, "height": H / 2, "label": "a"}]
+    app.inputs["state"].value = "cuttlebone"
+    app._safe(app.on_save)                                       # se queda en la foto
+    ind = sepia.load_events(cfg)["individual"]
+    assert ind.iloc[0]["crop_box"] == {"x0": 0.0, "y0": 0.0, "x1": 0.5, "y1": 0.5}
+    assert len(app.bbox.bboxes) == 1 and app.bbox.bboxes[0]["label"] == "a"   # recargado
+    app._safe(app.on_save)                                       # guardar otra vez lo mantiene
+    assert sepia.load_events(cfg)["individual"].iloc[0]["crop_box"]["x1"] == 0.5
+    wb = openpyxl.load_workbook(sepia.build_excel(cfg, "box.xlsx"))["identification"]
+    hdr = [c.value for c in wb[1]]
+    r = dict(zip(hdr, next(wb.iter_rows(min_row=2, values_only=True))))
+    assert json.loads(r["crop_box"])["y1"] == 0.5
