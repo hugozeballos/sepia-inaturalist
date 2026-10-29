@@ -396,7 +396,7 @@ def test_annotation_app_smoke(api, cfg):
     app.inputs["side"].value = "dorsal"
     app.inputs["epibionts"].value = "yes"
     app.inputs["barnacles_n"].value = "1-10"
-    app.buttons.children[0].children[0].click()                   # "Save ▶": guarda y avanza
+    app.save_row.children[0].click()                              # "Save ▶": guarda y avanza
     assert "Saved" in app.msg.value and app.row["photo_id"] == 12
     assert app.letter.value == "b" and "a" in [o[1] for o in app.letter.options]
     app.letter.value = "a"                                        # mismo hueso, otra foto

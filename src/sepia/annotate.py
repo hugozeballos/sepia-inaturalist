@@ -261,12 +261,13 @@ class AnnotationApp:
             b.on_click(lambda _: self._safe(cb))
             return b
 
+        # Botones de guardar justo bajo el formulario: no hay que bajar a buscarlos.
+        # Save = guardar y pasar a la siguiente foto (lo habitual).
+        # Para otro individuo en la MISMA foto: "Save + another here".
+        self.save_row = w.HBox([btn("Save ▶", self.on_save_next, "success"),
+                                btn("Save + another here", self.on_save, "info"),
+                                btn("Delete individual", self.on_delete, "danger")])
         self.buttons = w.VBox([
-            # Save = guardar y pasar a la siguiente foto (lo habitual).
-            # Para otro individuo en la MISMA foto: "Save + another here".
-            w.HBox([btn("Save ▶", self.on_save_next, "success"),
-                    btn("Save + another here", self.on_save, "info"),
-                    btn("Delete individual", self.on_delete, "danger")]),
             w.HBox([btn("◀ Previous photo", self.on_prev), btn("Next photo ▶", self.on_next),
                     btn("Next pending ⏭", self.on_pending),
                     btn("Photo without individuals", self.on_empty, "warning")]),
@@ -280,9 +281,11 @@ class AnnotationApp:
         self.inputs["epibionts"].observe(lambda ch: self._visibility(), names="value")
 
         form = w.VBox([self.letter] + list(self.inputs.values()))
+        self._js = w.Output(layout=w.Layout(height="0px"))   # para volver arriba (JavaScript)
         self.box = w.VBox([self.header, self.strip,
-                           w.HBox([self.image, w.VBox([self.table, form])]),
-                           self.buttons, self.msg])
+                           w.HBox([self.image, w.VBox([self.table, form, self.save_row, self.msg])]),
+                           self.buttons, self._js])
+        self.box.add_class("sepia-app")
         self._render()
 
     # --- utilidades ---
@@ -444,6 +447,20 @@ class AnnotationApp:
     def _go(self, i):
         self.i = max(0, min(i, len(self.queue) - 1))
         self._render()
+        self._scroll_top()
+
+    def _scroll_top(self):
+        """Lleva la vista al inicio de la interfaz (mejor esfuerzo: depende del navegador)."""
+        try:
+            from IPython.display import Javascript, display
+            with self._js:
+                self._js.clear_output()
+                display(Javascript(
+                    "var e = document.querySelector('.sepia-app');"
+                    "if (e) { e.scrollIntoView({block: 'start'}); }"
+                    "else { window.scrollTo(0, 0); }"))
+        except Exception:
+            pass
 
     # --- acciones ---
     def on_save(self):
