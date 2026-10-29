@@ -46,7 +46,7 @@ EXCEL_COLUMNS = [
 # Columnas de trazabilidad: van al final de la tabla entregada
 TRACE_COLUMNS = ["photo_id", "photo_position", "crop_box", "label_source", "model_version", "model_prob",
                  "reviewed", "annotator", "round", "validation_set",
-                 "possible_duplicate_of", "excluded_reason", "download_date"]
+                 "possible_duplicate_of", "excluded_reason", "download_date", "notes"]
 
 # Leyenda (definiciones de la hoja 'legend' de Martin + columnas nuevas)
 LEGEND = {
@@ -86,6 +86,7 @@ LEGEND = {
     "possible_duplicate_of": "observation ID of a possible duplicate by another user",
     "excluded_reason": "reason for excluding the record",
     "download_date": "date the record was downloaded from iNaturalist",
+    "notes": "free-text remarks of the annotator (doubts, unusual cases)",
 }
 
 # Una anotacion = un individuo en una foto. El lado es un atributo de esa fila

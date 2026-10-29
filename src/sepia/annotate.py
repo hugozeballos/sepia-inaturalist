@@ -243,49 +243,51 @@ class AnnotationApp:
         self.inputs = {}
         for name, label, opts, group in FIELDS:
             if opts == "text":
-                wid = w.Text(description=label, layout=w.Layout(width="420px"))
+                wid = w.Text(description=label, layout=w.Layout(width="320px"))
             else:
                 wid = w.Dropdown(description=label, options=[("—", None)] + [(str(o), o) for o in opts],
                                  layout=w.Layout(width="260px"))
-            wid.style.description_width = "160px"
+            wid.style.description_width = "120px"
             self.inputs[name] = wid
-        self.letter.style.description_width = "160px"
+        self.letter.style.description_width = "120px"
         self.msg = w.HTML()
-        self.reason = w.Text(description="Exclusion reason", layout=w.Layout(width="420px"))
-        self.reason.style.description_width = "160px"
-        self.jump = w.Text(description="Go to ID", layout=w.Layout(width="260px"))
-        self.jump.style.description_width = "160px"
+        self.reason = w.Text(placeholder="exclusion reason", layout=w.Layout(width="220px"))
+        self.jump = w.Text(placeholder="iNaturalist ID", layout=w.Layout(width="220px"))
 
         def btn(text, cb, style=""):
-            b = w.Button(description=text, button_style=style, layout=w.Layout(width="auto"))
+            b = w.Button(description=text, button_style=style, layout=w.Layout(width="100%"))
             b.on_click(lambda _: self._safe(cb))
             return b
 
-        # Botones de guardar justo bajo el formulario: no hay que bajar a buscarlos.
+        # Tres columnas: foto | formulario | botones (todo a la vista, sin bajar).
         # Save = guardar y pasar a la siguiente foto (lo habitual).
         # Para otro individuo en la MISMA foto: "Save + another here".
-        self.save_row = w.HBox([btn("Save ▶", self.on_save_next, "success"),
-                                btn("Save + another here", self.on_save, "info"),
-                                btn("Delete individual", self.on_delete, "danger")])
+        col = w.Layout(width="220px")
         self.buttons = w.VBox([
-            w.HBox([btn("◀ Previous photo", self.on_prev), btn("Next photo ▶", self.on_next),
-                    btn("Next pending ⏭", self.on_pending),
-                    btn("Photo without individuals", self.on_empty, "warning")]),
-            w.HBox([self.reason, btn("Exclude record", self.on_exclude, "danger"),
-                    btn("Undo exclusion", self.on_unexclude)]),
-            w.HBox([self.jump, btn("Go", self.on_jump)]),
-        ])
+            btn("Save ▶", self.on_save_next, "success"),
+            btn("Save + another here", self.on_save, "info"),
+            btn("Delete individual", self.on_delete, "danger"),
+            w.HTML("<hr style='margin:6px 0'>"),
+            w.HBox([btn("◀ Prev", self.on_prev), btn("Next ▶", self.on_next)]),
+            btn("Next pending ⏭", self.on_pending),
+            btn("Photo without individuals", self.on_empty, "warning"),
+            w.HTML("<hr style='margin:6px 0'>"),
+            self.reason,
+            w.HBox([btn("Exclude record", self.on_exclude, "danger"),
+                    btn("Undo", self.on_unexclude)]),
+            w.HTML("<hr style='margin:6px 0'>"),
+            w.HBox([self.jump]), btn("Go to ID", self.on_jump),
+            self.msg,
+        ], layout=col)
         self.letter.observe(lambda ch: self._safe(self._load_letter), names="value")
         self._loading = False
         self.inputs["state"].observe(lambda ch: self._safe(lambda: self._on_state(ch)), names="value")
         self.inputs["epibionts"].observe(lambda ch: self._visibility(), names="value")
 
-        form = w.VBox([self.letter] + list(self.inputs.values()))
-        self._js = w.Output(layout=w.Layout(height="0px"))   # para volver arriba (JavaScript)
+        form = w.VBox([self.table, self.letter] + list(self.inputs.values()),
+                      layout=w.Layout(margin="0 12px"))
         self.box = w.VBox([self.header, self.strip,
-                           w.HBox([self.image, w.VBox([self.table, form, self.save_row, self.msg])]),
-                           self.buttons, self._js])
-        self.box.add_class("sepia-app")
+                           w.HBox([self.image, form, self.buttons])])
         self._render()
 
     # --- utilidades ---
@@ -447,20 +449,6 @@ class AnnotationApp:
     def _go(self, i):
         self.i = max(0, min(i, len(self.queue) - 1))
         self._render()
-        self._scroll_top()
-
-    def _scroll_top(self):
-        """Lleva la vista al inicio de la interfaz (mejor esfuerzo: depende del navegador)."""
-        try:
-            from IPython.display import Javascript, display
-            with self._js:
-                self._js.clear_output()
-                display(Javascript(
-                    "var e = document.querySelector('.sepia-app');"
-                    "if (e) { e.scrollIntoView({block: 'start'}); }"
-                    "else { window.scrollTo(0, 0); }"))
-        except Exception:
-            pass
 
     # --- acciones ---
     def on_save(self):

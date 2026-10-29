@@ -345,7 +345,8 @@ def test_annotation_events(api, cfg):
     _ready(cfg)
     q = an.work_queue(cfg)
     assert len(q) == 14 and an.first_pending(q, an.load_events(cfg)) == 0
-    an.save_individual(cfg, "HZ", 1, 11, "a", {"state": "cuttlebone", "side": "dorsal"})
+    an.save_individual(cfg, "HZ", 1, 11, "a", {"state": "cuttlebone", "side": "dorsal",
+                                               "notes": "same bone as in record 2?"})
     an.save_individual(cfg, "HZ", 1, 12, "a", {"state": "cuttlebone", "side": "dorsal"})
     an.save_individual(cfg, "HZ", 1, 12, "a", {"state": "cuttlebone", "side": "ventral"})  # correccion
     an.save_individual(cfg, "HZ", 1, 12, "b", {"state": "cuttlebone", "side": "dorsal"})
@@ -370,6 +371,7 @@ def test_annotation_events(api, cfg):
     r1 = [r for r in rows if r["ID"] == 1]
     assert [(r["photo_id"], r["dorsal side (cuttlebone)"], r["ventral side (cuttlebone)"]) for r in r1] \
         == [(11, 1, None), (12, None, 1)]
+    assert r1[0]["notes"] == "same bone as in record 2?"
     assert all(r["number individuals (cuttlebone)"] == 1 and r["reviewed"] is True for r in r1)
     r21 = [r for r in rows if r["photo_id"] == 21][0]
     assert r21["reviewed"] is True and r21["individual (a,b,c,d,e)"] is None
@@ -396,7 +398,7 @@ def test_annotation_app_smoke(api, cfg):
     app.inputs["side"].value = "dorsal"
     app.inputs["epibionts"].value = "yes"
     app.inputs["barnacles_n"].value = "1-10"
-    app.save_row.children[0].click()                              # "Save ▶": guarda y avanza
+    app.buttons.children[0].click()                               # "Save ▶": guarda y avanza
     assert "Saved" in app.msg.value and app.row["photo_id"] == 12
     assert app.letter.value == "b" and "a" in [o[1] for o in app.letter.options]
     app.letter.value = "a"                                        # mismo hueso, otra foto
