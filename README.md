@@ -125,6 +125,24 @@ Reglas fijas aplicadas sobre la respuesta del modelo (`apply_rules`, quedan regi
 la confianza no puede ser alta.
 
 
+## Lado y erosión por foto (Gemini, sin ejemplos)
+
+Paso aparte del triaje (no cambia el conteo por registro): una consulta por foto, a 1024 px,
+con `prompts/photo_traits_v1.txt` (definiciones de la guía de Martin). Pide huesos visibles y,
+solo si hay **exactamente un hueso**, el lado y la erosión (regla fija: con 0 o varios huesos,
+`not_applicable`). Sección `photo_traits` del YAML; salida en
+`outputs/photo_traits_<proveedor>_<modelo>.jsonl`. La interfaz de anotación no muestra estos
+resultados.
+
+```python
+!python scripts/photo_traits.py --config configs/pilot_a1.yaml --limit 5   # prueba
+!python scripts/photo_traits.py --config configs/pilot_a1.yaml             # todas (reanudable)
+!python scripts/photo_traits.py --config configs/pilot_a1.yaml --evaluate  # vs anotación manual
+```
+
+La evaluación compara huesos visibles con *Individuals in photo* y, en fotos con un único
+individuo anotado, el lado y la erosión (tabla de confusión).
+
 ## Anotación manual
 
 Interfaz en el notebook (ipywidgets, ya incluido en Colab). Usa las fotos de 1024 px

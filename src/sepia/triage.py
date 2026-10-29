@@ -128,7 +128,9 @@ class GeminiProvider:
         # razonamiento del modelo: MINIMAL, LOW, MEDIUM, HIGH (None = lo que decida el modelo)
         self.thinking_level = thinking_level.upper() if thinking_level else None
 
-    def classify(self, images: list[bytes], prompt: str) -> tuple[dict, str, dict]:
+    def classify(self, images: list[bytes], prompt: str, schema=None) -> tuple[dict, str, dict]:
+        """schema: modelo Pydantic de la respuesta (por defecto TriageResult)."""
+        schema = schema or TriageResult
         t = self._types
         contents = []
         for i, img in enumerate(images, start=1):
@@ -142,7 +144,7 @@ class GeminiProvider:
                 config=t.GenerateContentConfig(
                     temperature=self.temperature,
                     response_mime_type="application/json",
-                    response_schema=TriageResult,
+                    response_schema=schema,
                     thinking_config=(t.ThinkingConfig(thinking_level=self.thinking_level)
                                      if self.thinking_level else None),
                 ),
@@ -159,7 +161,7 @@ class GeminiProvider:
         usage = {"input_tokens": getattr(u, "prompt_token_count", None),
                  "output_tokens": getattr(u, "candidates_token_count", None),
                  "thinking_tokens": getattr(u, "thoughts_token_count", None)}
-        parsed = TriageResult.model_validate_json(r.text).model_dump()
+        parsed = schema.model_validate_json(r.text).model_dump()
         return parsed, r.text, usage
 
 

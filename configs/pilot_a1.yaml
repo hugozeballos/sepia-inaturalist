@@ -18,3 +18,15 @@ triage:
   requests_per_minute: 8        # por debajo del limite del nivel gratuito
   thinking_level: low           # razonamiento del modelo: minimal, low, medium, high
   timeout_s: 120                # tiempo maximo por llamada; si se pasa, queda como error y se reintenta al relanzar
+
+# Rasgos por foto (lado y erosion), paso aparte del triaje: no cambia el conteo.
+# Una consulta por foto; el lado y la erosion solo se piden si la foto muestra 1 hueso.
+photo_traits:
+  provider: gemini
+  model: gemini-3.5-flash-lite
+  temperature: 0
+  prompt_version: photo_traits_v1   # src/sepia/prompts/photo_traits_v1.txt (sin ejemplos)
+  image_size: 1024                  # mas detalle que el triaje: textura y bordes
+  requests_per_minute: 8
+  thinking_level: low
+  timeout_s: 120

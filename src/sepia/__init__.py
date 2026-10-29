@@ -9,5 +9,7 @@ from . import annotate
 from .annotate import AnnotationApp, load_events
 from . import triage
 from .triage import run_triage, load_triage, load_prompt, evaluate_triage
+from . import photo_traits
+from .photo_traits import run_photo_traits, load_photo_traits, evaluate_photo_traits
 
 __version__ = "0.1.0"

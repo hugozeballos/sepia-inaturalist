@@ -43,6 +43,8 @@ class Config:
     resize: tuple[int, ...] = (512, 1024)  # versiones reducidas a generar
     # Triaje con modelo de vision (ver src/sepia/triage.py)
     triage: dict | None = None
+    # Rasgos por foto: lado y erosion (ver src/sepia/photo_traits.py)
+    photo_traits: dict | None = None
 
     def query_params(self) -> dict:
         """Parametros de la consulta a la API (sin paginacion)."""
