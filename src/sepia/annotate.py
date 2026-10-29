@@ -262,8 +262,10 @@ class AnnotationApp:
             return b
 
         self.buttons = w.VBox([
-            w.HBox([btn("Save individual", self.on_save, "success"),
-                    btn("Save + next photo", self.on_save_next, "success"),
+            # Save = guardar y pasar a la siguiente foto (lo habitual).
+            # Para otro individuo en la MISMA foto: "Save + another here".
+            w.HBox([btn("Save ▶", self.on_save_next, "success"),
+                    btn("Save + another here", self.on_save, "info"),
                     btn("Delete individual", self.on_delete, "danger")]),
             w.HBox([btn("◀ Previous photo", self.on_prev), btn("Next photo ▶", self.on_next),
                     btn("Next pending ⏭", self.on_pending),
@@ -461,7 +463,11 @@ class AnnotationApp:
 
     def on_save_next(self):
         self.on_save()
-        self._go(self.i + 1)
+        if self.i + 1 < len(self.queue):
+            self._go(self.i + 1)
+            self.msg.value = "<b style='color:#070'>Saved · next photo</b>"
+        else:
+            self.msg.value = "<b style='color:#070'>Saved · this was the last photo</b>"
 
     def on_delete(self):
         r = self.row

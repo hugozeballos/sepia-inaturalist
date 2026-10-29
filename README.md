@@ -143,8 +143,8 @@ app.show()
 ```
 
 Flujo por foto: elegir la letra del individuo (las ya usadas en el registro aparecen en la
-lista; una letra de otra foto es el mismo hueso), llenar los campos y **Save individual**
-(otro individuo en la misma foto) o **Save + next photo**. Los campos de detalle solo aparecen
+lista; una letra de otra foto es el mismo hueso), llenar los campos
+y **Save ▶** (guarda y pasa a la siguiente foto) o **Save + another here** (otro individuo en la misma foto). Los campos de detalle solo aparecen
 para huesos; los de picorocos solo con epibiontes = yes. Otros botones: *Photo without
 individuals*, *Exclude record* (con motivo), *Delete individual*, anterior/siguiente, ir a un ID.
 
