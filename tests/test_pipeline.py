@@ -452,22 +452,41 @@ def test_crop_box_roundtrip(tmp_path):
     assert an.crop_photo(f, box).size == (1024, 768)
 
 
+def test_crop_box_text():
+    from sepia import annotate as an
+    box = {"x0": 0.1, "y0": 0.2, "x1": 0.5, "y1": 0.9}
+    assert an.parse_crop_box(an.format_crop_box(box)) == box
+    assert an.parse_crop_box("") is None
+    with pytest.raises(ValueError):
+        an.parse_crop_box("0.5, 0.2, 0.1, 0.9")                  # x0 > x1
+
+
 def test_annotation_app_boxes(api, cfg):
-    """Un recuadro dibujado con la letra elegida se guarda en crop_box y vuelve a aparecer."""
+    """Boton Draw box -> arrastrar -> coordenadas en el campo -> se guardan en crop_box."""
     pytest.importorskip("jupyter_bbox_widget")
     _ready(cfg)
     app = sepia.AnnotationApp(cfg, annotator="HZ")
-    assert app.bbox is not None and app.bbox.label == "a"
+    assert app.bbox is not None and app.bbox.view_only is True     # no se dibuja sin el boton
     W, H = app._box_size
+    app.bbox.bboxes = [{"x": 0, "y": 0, "width": W / 3, "height": H / 3, "label": "a"}]
+    assert app.crop.value == ""                                    # sin boton: se ignora
+    app.draw_btn.value = True
+    assert app.bbox.view_only is False and app.bbox.label == "a"
     app.bbox.bboxes = [{"x": 0, "y": 0, "width": W / 2, "height": H / 2, "label": "a"}]
+    assert app.crop.value == "0.0000, 0.0000, 0.5000, 0.5000"      # al soltar: el campo
+    assert app.draw_btn.value is False and app.bbox.view_only is True
     app.inputs["state"].value = "cuttlebone"
-    app._safe(app.on_save)                                       # se queda en la foto
+    app._safe(app.on_save)
     ind = sepia.load_events(cfg)["individual"]
     assert ind.iloc[0]["crop_box"] == {"x0": 0.0, "y0": 0.0, "x1": 0.5, "y1": 0.5}
-    assert len(app.bbox.bboxes) == 1 and app.bbox.bboxes[0]["label"] == "a"   # recargado
-    app._safe(app.on_save)                                       # guardar otra vez lo mantiene
-    assert sepia.load_events(cfg)["individual"].iloc[0]["crop_box"]["x1"] == 0.5
+    assert len(app.bbox.bboxes) == 1 and app.crop.value.endswith("0.5000")   # recargado
+    app.crop.value = "0.1, 0.1, 0.6, 0.6"                           # corregir a mano
+    app._safe(app.on_save)
+    assert sepia.load_events(cfg)["individual"].iloc[0]["crop_box"]["x1"] == 0.6
+    app.crop.value = "nonsense"
+    app._safe(app.on_save)
+    assert "Error" in app.msg.value
     wb = openpyxl.load_workbook(sepia.build_excel(cfg, "box.xlsx"))["identification"]
     hdr = [c.value for c in wb[1]]
     r = dict(zip(hdr, next(wb.iter_rows(min_row=2, values_only=True))))
-    assert json.loads(r["crop_box"])["y1"] == 0.5
+    assert json.loads(r["crop_box"])["y1"] == 0.6

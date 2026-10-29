@@ -149,7 +149,8 @@ para huesos; los de picorocos solo con epibiontes = yes. Otros botones: *Photo w
 individuals*, *Exclude record* (con motivo), *Delete individual*, anterior/siguiente, ir a un ID.
 
 **Recuadros (opcional):** con `jupyter-bbox-widget` instalado (`!pip install -q jupyter-bbox-widget`),
-se elige la letra y se arrastra un rectángulo sobre la foto; al guardar queda en `crop_box` como
+se elige la letra, se aprieta **▭ Draw box** y se arrastra un rectángulo sobre la foto; al soltar,
+las coordenadas aparecen en el campo *Crop box* (editable; **✕** lo borra) y al guardar quedan en `crop_box` como
 coordenadas relativas `{x0, y0, x1, y1}` (0-1) sobre la foto enderezada (EXIF aplicado), válidas
 para cualquier tamaño. `sepia.annotate.crop_photo(ruta, crop_box)` recorta el individuo.
 

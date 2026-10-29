@@ -74,6 +74,27 @@ def from_crop_box(box: dict, width: int, height: int) -> dict:
             "width": (box["x1"] - box["x0"]) * width, "height": (box["y1"] - box["y0"]) * height}
 
 
+def format_crop_box(box) -> str:
+    """{x0, y0, x1, y1} -> 'x0, y0, x1, y1' (texto del campo de la interfaz)."""
+    if not isinstance(box, dict):
+        return ""
+    return ", ".join(f"{box[k]:.4f}" for k in ("x0", "y0", "x1", "y1"))
+
+
+def parse_crop_box(text: str):
+    """'x0, y0, x1, y1' -> dict, o None si el campo esta vacio. Error si no es valido."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        x0, y0, x1, y1 = (float(v) for v in text.replace(";", ",").split(","))
+    except ValueError:
+        raise ValueError("crop box must be 'x0, y0, x1, y1' (numbers 0-1) or empty")
+    if not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
+        raise ValueError("crop box: need 0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1")
+    return {"x0": round(x0, 4), "y0": round(y0, 4), "x1": round(x1, 4), "y1": round(y1, 4)}
+
+
 def crop_photo(path, box: dict):
     """Recorta un individuo de una foto (cualquier tamano). Devuelve una imagen PIL."""
     from PIL import Image, ImageOps
@@ -249,8 +270,9 @@ class AnnotationApp:
     Retoma en la primera foto pendiente. No muestra resultados de modelos (anotacion a ciegas).
     Tamano de la foto: image_width / image_height (maximos, p. ej. "400px", "480px").
     Registros con varias fotos: arriba se ven todas en miniatura (thumb_px); clic = ir a esa foto.
-    Recuadros (opcional, boxes=True): elegir la letra y arrastrar un rectangulo sobre la foto;
-    se guarda en crop_box al guardar el individuo. Sin recuadro, crop_box queda vacio.
+    Recuadros (opcional, boxes=True): elegir la letra, boton 'Draw box' y arrastrar sobre la foto;
+    al soltar, las coordenadas aparecen en el campo 'Crop box' y se guardan con el individuo.
+    Campo vacio = sin recuadro.
     """
 
     def __init__(self, cfg: Config, annotator: str, round_=None, ids=None, image_px=1024,
@@ -284,11 +306,13 @@ class AnnotationApp:
                     output.enable_custom_widget_manager()
                 except ImportError:
                     pass
-                self.bbox = BBoxWidget(hide_buttons=True, layout=w.Layout(width=image_width))
+                self.bbox = BBoxWidget(hide_buttons=True, view_only=True,
+                                       layout=w.Layout(width=image_width))
             except ImportError:
                 print("AVISO: falta jupyter-bbox-widget; la foto se muestra sin recuadros "
                       "(pip install jupyter-bbox-widget)")
         self.viewer = self.bbox if self.bbox is not None else self.image
+        self._box_updating = False
         self.table = w.HTML()
         self.letter = w.Dropdown(description="Individual", layout=w.Layout(width="260px"))
         self.inputs = {}
@@ -331,13 +355,26 @@ class AnnotationApp:
             self.msg,
         ], layout=col)
         self.letter.observe(lambda ch: self._safe(self._load_letter), names="value")
-        if self.bbox is not None:      # el recuadro que se dibuje lleva la letra elegida
-            self.letter.observe(lambda ch: setattr(self.bbox, "label", ch["new"] or ""), names="value")
+        # Recuadro: boton "Draw box" -> arrastrar sobre la foto -> al soltar, las
+        # coordenadas (relativas 0-1) aparecen en el campo "Crop box" (editable; vacio = sin recuadro)
+        self.crop = w.Text(description="Crop box", placeholder="x0, y0, x1, y1 (optional)",
+                           layout=w.Layout(width="320px"))
+        self.crop.style.description_width = "120px"
+        self.draw_btn = w.ToggleButton(description="▭ Draw box", layout=w.Layout(width="110px"),
+                                       disabled=self.bbox is None,
+                                       tooltip="click, then drag a rectangle on the photo")
+        clear_btn = w.Button(description="✕", layout=w.Layout(width="40px"), tooltip="remove box")
+        clear_btn.on_click(lambda _: self._safe(self._clear_box))
+        self.draw_btn.observe(lambda ch: self._safe(lambda: self._toggle_draw(ch["new"])), names="value")
+        if self.bbox is not None:
+            self.bbox.observe(lambda ch: self._safe(lambda: self._on_box_drawn(ch["new"])),
+                              names="bboxes")
         self._loading = False
         self.inputs["state"].observe(lambda ch: self._safe(lambda: self._on_state(ch)), names="value")
         self.inputs["epibionts"].observe(lambda ch: self._visibility(), names="value")
 
-        form = w.VBox([self.table, self.letter] + list(self.inputs.values()),
+        form = w.VBox([self.table, self.letter,
+                       w.HBox([self.crop, self.draw_btn, clear_btn])] + list(self.inputs.values()),
                       layout=w.Layout(margin="0 12px"))
         self.box = w.VBox([self.header, self.strip,
                            w.HBox([self.viewer, form, self.buttons])])
@@ -393,6 +430,7 @@ class AnnotationApp:
             return
         W, H = self._image_size(path)
         self._box_size = (W, H)
+        self._box_updating = True
         self.bbox.classes = [v for _, v in options]
         self.bbox.image = str(path)
         boxes = []
@@ -402,18 +440,41 @@ class AnnotationApp:
                 if isinstance(cb, dict):
                     boxes.append({**from_crop_box(cb, W, H), "label": r.individual})
         self.bbox.bboxes = boxes
+        self._box_updating = False
 
-    def _drawn_box(self, letter):
-        """Ultimo recuadro dibujado con esa letra, en coordenadas relativas (o None)."""
+    def _toggle_draw(self, on):
+        """Boton 'Draw box': habilita dibujar un recuadro con la letra elegida."""
         if self.bbox is None:
-            return None
-        mine = [b for b in self.bbox.bboxes if b.get("label") == letter]
+            return
+        self.bbox.label = self.letter.value or ""
+        self.bbox.view_only = not on
+        self.draw_btn.button_style = "warning" if on else ""
+        if on:
+            self.msg.value = f"Drag a rectangle around individual <b>{self.letter.value}</b>"
+
+    def _on_box_drawn(self, boxes):
+        """Al soltar: deja un solo recuadro por letra y muestra sus coordenadas en el campo."""
+        if self._box_updating or not self.draw_btn.value:
+            return
+        letter = self.letter.value
+        mine = [b for b in boxes if b.get("label") == letter]
         if not mine or not getattr(self, "_box_size", None):
-            return None
-        b = mine[-1]
-        if b["width"] <= 1 or b["height"] <= 1:
-            return None
-        return to_crop_box(b, *self._box_size)
+            return
+        new = mine[-1]
+        self._box_updating = True                     # evitar recursion al reescribir bboxes
+        self.bbox.bboxes = [b for b in boxes if b.get("label") != letter] + [new]
+        self._box_updating = False
+        self.crop.value = format_crop_box(to_crop_box(new, *self._box_size))
+        self.draw_btn.value = False                   # vuelve a modo solo-ver
+        self.msg.value = f"Box for <b>{letter}</b> ready: press Save"
+
+    def _clear_box(self):
+        letter = self.letter.value
+        self.crop.value = ""
+        if self.bbox is not None:
+            self._box_updating = True
+            self.bbox.bboxes = [b for b in self.bbox.bboxes if b.get("label") != letter]
+            self._box_updating = False
 
     def _render_strip(self, oid, done):
         """Miniaturas de todas las fotos del registro; clic = ir a esa foto."""
@@ -492,6 +553,7 @@ class AnnotationApp:
         self.letter.value = sorted(here_letters)[0] if here_letters else new
         if self.bbox is not None:
             self.bbox.label = self.letter.value
+            self.draw_btn.value = False
         self._load_letter()
         if not keep_msg:
             self.msg.value = ""
@@ -520,6 +582,10 @@ class AnnotationApp:
             d = self.events["individual"]
             other = d[(d["observation_id"] == self.row["observation_id"]) & (d["individual"] == letter)]
             vals = {"state": other.iloc[-1].get("state")} if len(other) else {}
+        self.crop.value = format_crop_box(vals.get("crop_box"))   # recuadro guardado (o vacio)
+        if self.bbox is not None:
+            self.draw_btn.value = False
+            self.bbox.label = letter or ""
         self._loading = True
         for name, wid in self.inputs.items():
             v = vals.get(name)
@@ -559,7 +625,7 @@ class AnnotationApp:
             mark_empty_photo(self.cfg, self.annotator, r["observation_id"], r["photo_id"], False, self.round)
         save_individual(self.cfg, self.annotator, r["observation_id"], r["photo_id"],
                         self.letter.value, vals, self.round,
-                        crop_box=self._drawn_box(self.letter.value))
+                        crop_box=parse_crop_box(self.crop.value))
         letter = self.letter.value
         self._reload()
         self._render()
