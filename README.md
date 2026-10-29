@@ -125,6 +125,34 @@ Reglas fijas aplicadas sobre la respuesta del modelo (`apply_rules`, quedan regi
 la confianza no puede ser alta.
 
 
+## Anotación manual
+
+Interfaz en el notebook (ipywidgets, ya incluido en Colab). Usa las fotos de 1024 px
+(`download.py` las genera en el paso `resize`). No muestra resultados de modelos: la anotación
+es a ciegas, para poder evaluar los modelos contra ella.
+
+```python
+import sys
+sys.path.insert(0, '/content/sepia-inaturalist/src')
+for m in [m for m in sys.modules if m == 'sepia' or m.startswith('sepia.')]: del sys.modules[m]
+from sepia import load_config, AnnotationApp
+
+cfg = load_config('/content/sepia-inaturalist/configs/pilot_a1.yaml')
+app = AnnotationApp(cfg, annotator='HZ', round_=1)   # retoma en la primera foto pendiente
+app.show()
+```
+
+Flujo por foto: elegir la letra del individuo (las ya usadas en el registro aparecen en la
+lista; una letra de otra foto es el mismo hueso), llenar los campos y **Save individual**
+(otro individuo en la misma foto) o **Save + next photo**. Los campos de detalle solo aparecen
+para huesos; los de picorocos solo con epibiontes = yes. Otros botones: *Photo without
+individuals*, *Exclude record* (con motivo), *Delete individual*, anterior/siguiente, ir a un ID.
+
+Se guarda en `annotations/manual_<anotador>.jsonl`, una línea por acción (`kind`: `individual`,
+`empty_photo`, `exclude_record`), con `schema_version`, `annotator`, `round` y `saved_at` (UTC).
+Nada se borra: corregir es guardar de nuevo; para cada clave vale la última línea. Un anotador =
+un archivo (dos personas en el mismo archivo de Drive pueden pisarse).
+
 ## Excel de entrega
 
 ```python

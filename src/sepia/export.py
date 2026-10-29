@@ -95,28 +95,11 @@ ANNOTATION_KEY = ["observation_id", "photo_id", "individual"]
 
 def load_annotations(cfg: Config) -> pd.DataFrame:
     """
-    Junta todas las anotaciones (annotations/*.jsonl). Cada linea es un
-    individuo en una foto (observation_id + photo_id + individual). Si una misma clave aparece varias veces, vale la ultima
-    guardada (columna 'saved_at').
+    Individuos anotados (una fila por observation_id + photo_id + individual), con
+    'vale la ultima' ya aplicado y sin los borrados. Ver annotate.load_events.
     """
-    p = paths(cfg)
-    frames = [read_jsonl(f) for f in sorted(p["annotations"].glob("*.jsonl"))]
-    frames = [f for f in frames if len(f)]
-    if not frames:
-        return pd.DataFrame(columns=ANNOTATION_KEY)
-    ann = pd.concat(frames, ignore_index=True)
-    for k in ANNOTATION_KEY:
-        if k not in ann:
-            ann[k] = None
-    missing = ann["photo_id"].isna().sum()
-    if missing:
-        print(f"AVISO: {missing} anotaciones sin photo_id, no se usan")
-        ann = ann[ann["photo_id"].notna()]
-    ann["photo_id"] = ann["photo_id"].astype("int64")
-    if "saved_at" in ann:
-        ann = ann.sort_values("saved_at")
-    return ann.drop_duplicates(subset=ANNOTATION_KEY, keep="last")
-
+    from .annotate import load_events
+    return load_events(cfg)["individual"]
 
 # Estado del triaje -> palabras de la hoja 'legend' de Martin
 STATE_WORDS = {"cuttlebone": "cuttlebone", "live_animal": "live animal",
@@ -170,6 +153,16 @@ def build_excel(cfg: Config, out_name: str | None = None) -> Path:
     if manifest.exists():
         obs["download_date"] = json.loads(manifest.read_text())["written_at"][:10]
 
+    # Eventos de anotacion: individuos, fotos sin individuos y registros excluidos
+    from .annotate import load_events
+    events = load_events(cfg)
+    ex_ann = events["exclude_record"]
+    if len(ex_ann):
+        reasons = ex_ann.set_index("observation_id")["excluded_reason"]
+        if "excluded_reason" not in obs:
+            obs["excluded_reason"] = None
+        obs["excluded_reason"] = obs["observation_id"].map(reasons).fillna(obs["excluded_reason"])
+
     # Registros excluidos van a su propia hoja
     if "excluded_reason" in obs:
         excluded = obs[obs["excluded_reason"].notna() & (obs["excluded_reason"] != "")]
@@ -185,10 +178,35 @@ def build_excel(cfg: Config, out_name: str | None = None) -> Path:
     skeleton = obs.merge(photos, on="observation_id", how="left")
 
     # Anotaciones: una fila por individuo en cada foto anotada
-    ann = load_annotations(cfg)
+    ann = events["individual"]
+    ann = ann.drop(columns=[c for c in ("kind", "deleted", "schema_version", "empty", "excluded_reason")
+                          if c in ann])
     keep = ["observation_id", "photo_id"]
     rec_cols = [c for c in skeleton.columns if c not in ann.columns or c in keep]
     table = skeleton[rec_cols].merge(ann, on=keep, how="left")
+
+    # Fotos marcadas "sin individuos": quedan como fila revisada, sin individuo
+    emp = events["empty_photo"]
+    if len(emp):
+        is_empty = pd.MultiIndex.from_frame(table[["observation_id", "photo_id"]]).isin(
+            pd.MultiIndex.from_frame(emp[["observation_id", "photo_id"]].astype("int64")))
+        is_empty = is_empty & table["individual"].isna()
+        for c, v in (("label_source", "annotator"), ("reviewed", True)):
+            if c not in table:
+                table[c] = None
+            table[c] = table[c].astype(object)
+            table.loc[is_empty, c] = v
+        if "annotator" in emp:
+            if "annotator" not in table:
+                table["annotator"] = None
+            amap = emp.set_index(["observation_id", "photo_id"])["annotator"]
+            keys = list(zip(table["observation_id"], table["photo_id"]))
+            table["annotator"] = table["annotator"].astype(object)
+            table.loc[is_empty, "annotator"] = [amap.get(k) for k, e in zip(keys, is_empty) if e]
+
+    # Filas anotadas por una persona: revisadas
+    if "label_source" in table and "reviewed" in table:
+        table.loc[(table["label_source"] == "annotator") & table["reviewed"].isna(), "reviewed"] = True
 
     # n_cuttlebones anotado = letras distintas del registro (no filas), salvo que
     # el anotador lo haya escrito explicitamente

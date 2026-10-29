@@ -326,3 +326,94 @@ def test_excel_with_triage(api, cfg, monkeypatch):
     assert json.loads(r1["model_prob"])["confidence"] == "high"
     assert r1["reviewed"] is False
     assert r2["state"] == "egg case" and r2["label_source"] == "annotator"   # gana la persona
+
+
+# --------------------------------------------------------------------------
+# Anotacion manual
+# --------------------------------------------------------------------------
+
+def _ready(cfg):
+    sepia.download_observations(cfg)
+    sepia.build_tables(cfg)
+    sepia.download_photos(cfg)
+    sepia.make_resized(cfg, 1024)
+
+
+def test_annotation_events(api, cfg):
+    """Dorsal y ventral del mismo individuo en fotos distintas conviven; corregir = la ultima."""
+    from sepia import annotate as an
+    _ready(cfg)
+    q = an.work_queue(cfg)
+    assert len(q) == 14 and an.first_pending(q, an.load_events(cfg)) == 0
+    an.save_individual(cfg, "HZ", 1, 11, "a", {"state": "cuttlebone", "side": "dorsal"})
+    an.save_individual(cfg, "HZ", 1, 12, "a", {"state": "cuttlebone", "side": "dorsal"})
+    an.save_individual(cfg, "HZ", 1, 12, "a", {"state": "cuttlebone", "side": "ventral"})  # correccion
+    an.save_individual(cfg, "HZ", 1, 12, "b", {"state": "cuttlebone", "side": "dorsal"})
+    an.delete_individual(cfg, "HZ", 1, 12, "b")                                           # error
+    an.mark_empty_photo(cfg, "HZ", 2, 21)
+    an.exclude_record(cfg, "HZ", 3, "captive animal")
+    an.exclude_record(cfg, "HZ", 4, "duplicate")
+    an.exclude_record(cfg, "HZ", 4, "")                                                   # deshacer
+    ev = an.load_events(cfg)
+    ind = ev["individual"].set_index(["photo_id", "individual"])["side"].to_dict()
+    assert ind == {(11, "a"): "dorsal", (12, "a"): "ventral"}
+    assert an.letters_in_record(ev, 1) == ["a"] and an.next_letter(["a", "b"]) == "c"
+    assert list(ev["exclude_record"]["observation_id"]) == [3]
+    # pendiente: foto 22 (la 21 esta vacia, el registro 1 completo)
+    assert q.iloc[an.first_pending(q, ev)]["photo_id"] == 22
+    line = sepia.read_jsonl(an.annotation_file(cfg, "HZ")).iloc[0]
+    assert line["schema_version"] == 1 and line["annotator"] == "HZ" and line["saved_at"].endswith("+00:00")
+
+    wb = openpyxl.load_workbook(sepia.build_excel(cfg, "ann.xlsx"))
+    hdr = [c.value for c in wb["identification"][1]]
+    rows = [dict(zip(hdr, r)) for r in wb["identification"].iter_rows(min_row=2, values_only=True)]
+    r1 = [r for r in rows if r["ID"] == 1]
+    assert [(r["photo_id"], r["dorsal side (cuttlebone)"], r["ventral side (cuttlebone)"]) for r in r1] \
+        == [(11, 1, None), (12, None, 1)]
+    assert all(r["number individuals (cuttlebone)"] == 1 and r["reviewed"] is True for r in r1)
+    r21 = [r for r in rows if r["photo_id"] == 21][0]
+    assert r21["reviewed"] is True and r21["individual (a,b,c,d,e)"] is None
+    assert not any(r["ID"] == 3 for r in rows)
+    ex = list(wb["excluded"].iter_rows(min_row=2, values_only=True))
+    assert len(ex) == 1 and ex[0][0] == 3 and ex[0][-1] == "captive animal"
+
+
+def test_annotation_app_smoke(api, cfg):
+    """La interfaz se construye y los botones escriben las lineas esperadas."""
+    pytest.importorskip("ipywidgets")
+    _ready(cfg)
+    app = sepia.AnnotationApp(cfg, annotator="HZ", round_=1)
+    assert app.row["photo_id"] == 11 and len(app.image.value) > 0
+    app.inputs["state"].value = "cuttlebone"
+    assert app.inputs["side"].layout.display is None              # visible para huesos
+    assert app.inputs["barnacles_n"].layout.display == "none"     # oculto sin epibiontes
+    app.inputs["side"].value = "dorsal"
+    app.inputs["epibionts"].value = "yes"
+    app.inputs["barnacles_n"].value = "1-10"
+    app._safe(app.on_save_next)
+    assert app.msg.value == "" and app.row["photo_id"] == 12
+    assert app.letter.value == "b" and "a" in [o[1] for o in app.letter.options]
+    app.letter.value = "a"                                        # mismo hueso, otra foto
+    assert app.inputs["state"].value == "cuttlebone" and app.inputs["side"].value is None
+    app.inputs["side"].value = "ventral"
+    app.inputs["epibionts"].value = "no"
+    app._safe(app.on_save)
+    app._safe(app.on_next)
+    app._safe(app.on_empty)                                       # foto 21 sin individuos
+    app.reason.value = "not Sepia"
+    app._safe(app.on_exclude)                                     # excluye registro 2
+    app._safe(app.on_save)                                        # sin estado: error visible
+    assert "Error" in app.msg.value
+    ev = sepia.load_events(cfg)
+    ind = ev["individual"]
+    assert len(ind) == 2 and ind["round"].eq(1).all()
+    assert ind.set_index("photo_id").loc[11, "barnacles_n"] == "1-10"
+    assert "barnacles_n" not in ind or pd_isna(ind.set_index("photo_id").loc[12].get("barnacles_n"))
+    assert list(ev["exclude_record"]["observation_id"]) == [2]
+    app2 = sepia.AnnotationApp(cfg, annotator="HZ")              # retoma donde quedo
+    assert app2.row["observation_id"] == 3
+
+
+def pd_isna(v):
+    import pandas as pd
+    return v is None or pd.isna(v)
