@@ -390,6 +390,7 @@ def test_annotation_app_smoke(api, cfg):
     app.strip.children[0].children[1].click()
     assert app.row["photo_id"] == 11
     app.inputs["state"].value = "cuttlebone"
+    assert app.inputs["bitemarks"].value == "no" and app.inputs["epibionts"].value == "no"  # sugeridos
     assert app.inputs["side"].layout.display is None              # visible para huesos
     assert app.inputs["barnacles_n"].layout.display == "none"     # oculto sin epibiontes
     app.inputs["side"].value = "dorsal"
@@ -400,6 +401,7 @@ def test_annotation_app_smoke(api, cfg):
     assert app.letter.value == "b" and "a" in [o[1] for o in app.letter.options]
     app.letter.value = "a"                                        # mismo hueso, otra foto
     assert app.inputs["state"].value == "cuttlebone" and app.inputs["side"].value is None
+    assert app.inputs["epibionts"].value == "no"                  # sugerido (nuevo en esta foto)
     app.inputs["side"].value = "ventral"
     app.inputs["epibionts"].value = "no"
     app._safe(app.on_save)
@@ -422,3 +424,16 @@ def test_annotation_app_smoke(api, cfg):
 def pd_isna(v):
     import pandas as pd
     return v is None or pd.isna(v)
+
+
+def test_saved_blank_stays_blank(api, cfg):
+    """Un 'no se puede evaluar' (vacio) ya guardado no se convierte en 'no' al volver a abrirlo."""
+    pytest.importorskip("ipywidgets")
+    from sepia import annotate as an
+    _ready(cfg)
+    an.save_individual(cfg, "HZ", 1, 11, "a", {"state": "cuttlebone", "bitemarks": None,
+                                               "epibionts": "yes"})
+    app = sepia.AnnotationApp(cfg, annotator="HZ")
+    app._go(0)
+    assert app.letter.value == "a"
+    assert app.inputs["bitemarks"].value is None and app.inputs["epibionts"].value == "yes"

@@ -46,6 +46,10 @@ FIELDS = [
 ]
 FIELD_NAMES = [f[0] for f in FIELDS]
 
+# Valores sugeridos al marcar un hueso nuevo (se pueden cambiar). "—" (vacio) queda
+# reservado para "no se puede evaluar" (lado tapado, foto borrosa...): no es lo mismo que "no".
+BONE_DEFAULTS = {"bitemarks": "no", "epibionts": "no"}
+
 KEYS = {"individual": ["observation_id", "photo_id", "individual"],
         "empty_photo": ["observation_id", "photo_id"],
         "exclude_record": ["observation_id"]}
@@ -269,7 +273,8 @@ class AnnotationApp:
             w.HBox([self.jump, btn("Go", self.on_jump)]),
         ])
         self.letter.observe(lambda ch: self._safe(self._load_letter), names="value")
-        self.inputs["state"].observe(lambda ch: self._visibility(), names="value")
+        self._loading = False
+        self.inputs["state"].observe(lambda ch: self._safe(lambda: self._on_state(ch)), names="value")
         self.inputs["epibionts"].observe(lambda ch: self._visibility(), names="value")
 
         form = w.VBox([self.letter] + list(self.inputs.values()))
@@ -386,6 +391,18 @@ class AnnotationApp:
         if not keep_msg:
             self.msg.value = ""
 
+    def _apply_defaults(self):
+        """Hueso nuevo: sugiere 'no' en picoteo y epibiontes si estan vacios."""
+        if self.inputs["state"].value == "cuttlebone":
+            for k, v in BONE_DEFAULTS.items():
+                if self.inputs[k].value is None:
+                    self.inputs[k].value = v
+
+    def _on_state(self, ch):
+        if not self._loading:          # solo cuando la persona cambia el estado, no al cargar
+            self._apply_defaults()
+        self._visibility()
+
     def _load_letter(self):
         """Carga los valores del individuo elegido (si ya existe en esta foto)."""
         letter = self.letter.value
@@ -398,6 +415,7 @@ class AnnotationApp:
             d = self.events["individual"]
             other = d[(d["observation_id"] == self.row["observation_id"]) & (d["individual"] == letter)]
             vals = {"state": other.iloc[-1].get("state")} if len(other) else {}
+        self._loading = True
         for name, wid in self.inputs.items():
             v = vals.get(name)
             v = None if (v is None or (isinstance(v, float) and v != v)) else v
@@ -406,6 +424,9 @@ class AnnotationApp:
             else:
                 valid = [o[1] for o in wid.options]
                 wid.value = v if v in valid else (int(v) if str(v).isdigit() and int(v) in valid else None)
+        self._loading = False
+        if not len(cur):               # individuo nuevo en esta foto: valores sugeridos
+            self._apply_defaults()     # (uno ya guardado se muestra tal cual, aunque este vacio)
         self._visibility()
 
     def _values(self):
