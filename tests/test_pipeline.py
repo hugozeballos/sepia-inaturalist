@@ -391,7 +391,8 @@ def test_annotation_app_smoke(api, cfg):
     assert app.row["photo_id"] == 12
     app.strip.children[0].children[1].click()
     assert app.row["photo_id"] == 11
-    app.inputs["state"].value = "cuttlebone"
+    assert app.inputs["state"].value == "cuttlebone"              # estado por defecto
+    assert app.n_photo.value == 1                                 # individuos en la foto: 1
     assert app.inputs["bitemarks"].value == "no" and app.inputs["epibionts"].value == "no"  # sugeridos
     assert app.inputs["side"].layout.display is None              # visible para huesos
     assert app.inputs["barnacles_n"].layout.display == "none"     # oculto sin epibiontes
@@ -411,6 +412,7 @@ def test_annotation_app_smoke(api, cfg):
     app._safe(app.on_empty)                                       # foto 21 sin individuos
     app.reason.value = "not Sepia"
     app._safe(app.on_exclude)                                     # excluye registro 2
+    app.inputs["state"].value = None
     app._safe(app.on_save)                                        # sin estado: error visible
     assert "Error" in app.msg.value
     ev = sepia.load_events(cfg)
@@ -493,3 +495,35 @@ def test_annotation_app_boxes(api, cfg):
     hdr = [c.value for c in wb[1]]
     r = dict(zip(hdr, next(wb.iter_rows(min_row=2, values_only=True))))
     assert json.loads(r["crop_box"])["y1"] == 0.6
+
+
+
+def test_photo_count(api, cfg):
+    """Conteo por foto: se guarda con el individuo, 'solo conteo' cuenta como anotada, va al Excel."""
+    pytest.importorskip("ipywidgets")
+    _ready(cfg)
+    app = sepia.AnnotationApp(cfg, annotator="HZ", boxes=False)
+    app.n_photo.value = 2
+    app._safe(app.on_save_next)                                  # a en foto 11, con 2 visibles
+    app.n_photo.value = 27
+    app._safe(app.on_count_only)                                 # foto 12: muchos huesos, solo conteo
+    assert app.row["photo_id"] == 21
+    ev = sepia.load_events(cfg)
+    assert dict(zip(ev["photo_info"]["photo_id"], ev["photo_info"]["n_in_photo"])) == {11: 2, 12: 27}
+    app._safe(app.on_empty)                                      # foto 21: sin individuos -> 0
+    ev = sepia.load_events(cfg)
+    assert ev["photo_info"].set_index("photo_id").loc[21, "n_in_photo"] == 0
+    assert sepia.annotate.first_pending(app.queue, ev) == 3      # 11, 12, 21 hechas
+    app._go(0)
+    assert app.n_photo.value == 2                                # se recarga lo guardado
+    app._safe(app.on_save)                                       # mismo conteo: no repite linea
+    lines = sepia.read_jsonl(sepia.annotate.annotation_file(cfg, "HZ"))
+    assert (lines["kind"] == "photo_info").sum() == 3
+    app.n_photo.value = 0
+    app._safe(app.on_save)
+    assert "Note" in app.msg.value                               # 1 anotado > 0 en la foto
+    wb = openpyxl.load_workbook(sepia.build_excel(cfg, "cnt.xlsx"))["identification"]
+    hdr = [c.value for c in wb[1]]
+    rows = {r[hdr.index("photo_id")]: dict(zip(hdr, r)) for r in wb.iter_rows(min_row=2, values_only=True)}
+    assert rows[12]["n_in_photo"] == 27 and rows[12]["reviewed"] is True
+    assert rows[12]["individual (a,b,c,d,e)"] is None

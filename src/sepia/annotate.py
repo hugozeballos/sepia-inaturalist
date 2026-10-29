@@ -52,7 +52,11 @@ BONE_DEFAULTS = {"bitemarks": "no", "epibionts": "no"}
 
 KEYS = {"individual": ["observation_id", "photo_id", "individual"],
         "empty_photo": ["observation_id", "photo_id"],
+        "photo_info": ["observation_id", "photo_id"],
         "exclude_record": ["observation_id"]}
+
+# Valor por defecto del estado para un individuo nuevo (casi todo son huesos)
+DEFAULT_STATE = "cuttlebone"
 
 
 # --------------------------------------------------------------------------
@@ -151,6 +155,19 @@ def delete_individual(cfg, annotator, observation_id, photo_id, individual, roun
                    "individual": individual, "deleted": True}, round_)
 
 
+def save_photo_count(cfg, annotator, observation_id, photo_id, n_in_photo, round_=None):
+    """
+    Numero de huesos (individuos) que SE VEN en la foto, anotados o no en detalle.
+    Sirve para comparar con el conteo por foto del triaje.
+    """
+    n = int(n_in_photo)
+    if n < 0:
+        raise ValueError("individuals in photo must be >= 0")
+    return _write(cfg, annotator, "photo_info",
+                  {"observation_id": int(observation_id), "photo_id": int(photo_id),
+                   "n_in_photo": n}, round_)
+
+
 def mark_empty_photo(cfg, annotator, observation_id, photo_id, empty=True, round_=None):
     return _write(cfg, annotator, "empty_photo",
                   {"observation_id": int(observation_id), "photo_id": int(photo_id),
@@ -175,7 +192,7 @@ def load_events(cfg: Config) -> dict[str, pd.DataFrame]:
     frames = [read_jsonl(f) for f in sorted(p["annotations"].glob("*.jsonl"))]
     frames = [f for f in frames if len(f)]
     extra = {"individual": ["deleted"] + FIELD_NAMES, "empty_photo": ["empty"],
-             "exclude_record": ["excluded_reason"]}
+             "photo_info": ["n_in_photo"], "exclude_record": ["excluded_reason"]}
     out = {k: pd.DataFrame(columns=v + extra[k]) for k, v in KEYS.items()}
     if not frames:
         return out
@@ -198,7 +215,7 @@ def load_events(cfg: Config) -> dict[str, pd.DataFrame]:
                 d = d[~missing]
             d["photo_id"] = d["photo_id"].astype("int64")
         d["observation_id"] = d["observation_id"].astype("int64")
-        for c in ("deleted", "empty", "excluded_reason"):
+        for c in ("deleted", "empty", "excluded_reason", "n_in_photo"):
             if c not in d:
                 d[c] = None
         d = d.drop_duplicates(subset=key, keep="last")
@@ -228,9 +245,12 @@ def work_queue(cfg: Config, ids=None) -> pd.DataFrame:
 
 
 def done_photos(events) -> set[tuple[int, int]]:
-    """Fotos ya anotadas: con al menos un individuo, o marcadas sin individuos."""
+    """
+    Fotos ya anotadas: con al menos un individuo, marcadas sin individuos, o con
+    solo el conteo guardado (fotos con muchos huesos).
+    """
     done = set()
-    for k in ("individual", "empty_photo"):
+    for k in ("individual", "empty_photo", "photo_info"):
         d = events[k]
         done |= set(zip(d["observation_id"].astype(int), d["photo_id"].astype(int)))
     return done
@@ -321,6 +341,10 @@ class AnnotationApp:
         self.viewer = self.bbox if self.bbox is not None else self.image
         self._box_updating = False
         self.table = w.HTML()
+        # A nivel de FOTO: cuantos huesos se ven (anotados o no en detalle). 1 por defecto.
+        self.n_photo = w.BoundedIntText(value=1, min=0, max=999, description="Individuals in photo",
+                                        layout=w.Layout(width="260px"))
+        self.n_photo.style.description_width = "160px"
         self.letter = w.Dropdown(description="Individual", layout=w.Layout(width="260px"))
         self.inputs = {}
         for name, label, opts, group in FIELDS:
@@ -353,6 +377,7 @@ class AnnotationApp:
             w.HBox([btn("◀ Prev", self.on_prev), btn("Next ▶", self.on_next)]),
             btn("Next pending ⏭", self.on_pending),
             btn("Photo without individuals", self.on_empty, "warning"),
+            btn("Save count only ▶", self.on_count_only, "warning"),
             w.HTML("<hr style='margin:6px 0'>"),
             self.reason,
             w.HBox([btn("Exclude record", self.on_exclude, "danger"),
@@ -383,7 +408,7 @@ class AnnotationApp:
         self.inputs["state"].observe(lambda ch: self._safe(lambda: self._on_state(ch)), names="value")
         self.inputs["epibionts"].observe(lambda ch: self._visibility(), names="value")
 
-        form = w.VBox([self.table, self.letter,
+        form = w.VBox([self.table, self.n_photo, w.HTML("<hr style='margin:4px 0'>"), self.letter,
                        w.HBox([self.crop, self.draw_btn, clear_btn])] + list(self.inputs.values()),
                       layout=w.Layout(margin="0 12px"))
         self.box = w.VBox([self.header, self.strip,
@@ -563,6 +588,9 @@ class AnnotationApp:
         new = next_letter(letters)
         opts = [(f"{l} (this photo)" if l in here_letters else f"{l} (other photo)", l)
                 for l in letters] + [(f"{new} (new)", new)]
+        info = self.events["photo_info"]
+        saved_n = info.loc[(info["observation_id"] == oid) & (info["photo_id"] == pid), "n_in_photo"]
+        self.n_photo.value = int(saved_n.iloc[0]) if len(saved_n) else (0 if is_empty else 1)
         self.letter.options = opts
         self._render_boxes(here, opts)
         self.letter.value = sorted(here_letters)[0] if here_letters else new
@@ -597,6 +625,8 @@ class AnnotationApp:
             d = self.events["individual"]
             other = d[(d["observation_id"] == self.row["observation_id"]) & (d["individual"] == letter)]
             vals = {"state": other.iloc[-1].get("state")} if len(other) else {}
+            if vals.get("state") is None or vals.get("state") != vals.get("state"):
+                vals["state"] = DEFAULT_STATE          # individuo nuevo: hueso por defecto
         self.crop.value = format_crop_box(vals.get("crop_box"))   # recuadro guardado (o vacio)
         if self.bbox is not None:
             self.draw_btn.value = False
@@ -641,10 +671,35 @@ class AnnotationApp:
         save_individual(self.cfg, self.annotator, r["observation_id"], r["photo_id"],
                         self.letter.value, vals, self.round,
                         crop_box=parse_crop_box(self.crop.value))
+        self._save_count()
         letter = self.letter.value
         self._reload()
+        n_here = len(self._individuals_here())
+        n_saved = self.n_photo.value
         self._render()
         self.msg.value = f"<b style='color:#070'>Saved individual {letter}</b>"
+        if n_here > n_saved:
+            self.msg.value += (f"<br><b style='color:#b60'>Note: {n_here} individuals annotated but "
+                               f"'Individuals in photo' = {n_saved}</b>")
+
+    def _save_count(self):
+        """Guarda el conteo por foto solo si cambio (evita lineas repetidas)."""
+        r = self.row
+        info = self.events["photo_info"]
+        prev = info.loc[(info["observation_id"] == r["observation_id"]) &
+                        (info["photo_id"] == r["photo_id"]), "n_in_photo"]
+        if not len(prev) or int(prev.iloc[0]) != int(self.n_photo.value):
+            save_photo_count(self.cfg, self.annotator, r["observation_id"], r["photo_id"],
+                             self.n_photo.value, self.round)
+
+    def on_count_only(self):
+        """Foto con muchos huesos: guardar solo el conteo, sin anotar cada individuo."""
+        if self.n_photo.value < 1:
+            raise ValueError("count only needs 'Individuals in photo' >= 1 (or use 'Photo without individuals')")
+        self._save_count()
+        self._reload()
+        self._go(self.i + 1)
+        self.msg.value = "<b style='color:#070'>Count saved · next photo</b>"
 
     def on_save_next(self):
         self.on_save()
@@ -669,6 +724,8 @@ class AnnotationApp:
             raise ValueError("this photo has individuals: delete them first")
         r = self.row
         mark_empty_photo(self.cfg, self.annotator, r["observation_id"], r["photo_id"], True, self.round)
+        self.n_photo.value = 0
+        self._save_count()
         self._reload()
         self._go(self.i + 1)
 
