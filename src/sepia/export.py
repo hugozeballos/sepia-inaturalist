@@ -44,7 +44,7 @@ EXCEL_COLUMNS = [
 ]
 
 # Columnas de trazabilidad: van al final de la tabla entregada
-TRACE_COLUMNS = ["photo_ids", "crop_box", "label_source", "model_version", "model_prob",
+TRACE_COLUMNS = ["photo_id", "photo_position", "crop_box", "label_source", "model_version", "model_prob",
                  "reviewed", "annotator", "round", "validation_set",
                  "possible_duplicate_of", "excluded_reason", "download_date"]
 
@@ -58,11 +58,11 @@ LEGEND = {
     "place": "description of the location recorded by the iNaturalist observer",
     "observed on": "observation date",
     "url": "iNaturalist observation URL",
-    "individual (a,b,c,d,e)": "individual within the record, labelled clockwise from the upper left",
+    "individual (a,b,c,d,e)": "individual within the record, labelled clockwise from the upper left in the first photo where it appears; the same letter is kept in all photos of the record",
     "photo quality": "high (not covered by sand or seaweeds), medium (most details visible, moderate cover), low (blurry or covered, details difficult to distinguish)",
     "state": "cuttlebone, egg case or live animal",
     "number of pictures in record": "number of photos in the iNaturalist record",
-    "number individuals (cuttlebone)": "number of cuttlebones in the record",
+    "number individuals (cuttlebone)": "number of distinct cuttlebones in the record (distinct letters, not rows)",
     "dorsal side (cuttlebone)": "1 if this row describes the dorsal side",
     "ventral side (cuttlebone)": "1 if this row describes the ventral side",
     "level of erosion": "1 (almost intact), 2 (moderate erosion, some pieces missing), 3 (high erosion, at least 10% missing)",
@@ -73,7 +73,8 @@ LEGEND = {
     "number of barnacles (0; 1-10; 10-100; >100)": "barnacle abundance class",
     "aproximate size of barnacle (small, medium, large)": "approximate barnacle size",
     "possible genus/specie of balano": "genus or species of Balanidae, if the photo allows",
-    "photo_ids": "iNaturalist photo IDs that support the row",
+    "photo_id": "iNaturalist photo ID of the row (one row per photo and individual)",
+    "photo_position": "position of the photo in the iNaturalist record (1 = first)",
     "crop_box": "position of the individual in the photo",
     "label_source": "who assigned the labels: gpt, model, annotator",
     "model_version": "model or prompt version used",
@@ -87,13 +88,15 @@ LEGEND = {
     "download_date": "date the record was downloaded from iNaturalist",
 }
 
-ANNOTATION_KEY = ["observation_id", "individual", "side"]
+# Una anotacion = un individuo en una foto. El lado es un atributo de esa fila
+# (un hueso muestra un solo lado por foto), no parte de la clave.
+ANNOTATION_KEY = ["observation_id", "photo_id", "individual"]
 
 
 def load_annotations(cfg: Config) -> pd.DataFrame:
     """
     Junta todas las anotaciones (annotations/*.jsonl). Cada linea es un
-    individuo x lado. Si una misma clave aparece varias veces, vale la ultima
+    individuo en una foto (observation_id + photo_id + individual). Si una misma clave aparece varias veces, vale la ultima
     guardada (columna 'saved_at').
     """
     p = paths(cfg)
@@ -105,6 +108,11 @@ def load_annotations(cfg: Config) -> pd.DataFrame:
     for k in ANNOTATION_KEY:
         if k not in ann:
             ann[k] = None
+    missing = ann["photo_id"].isna().sum()
+    if missing:
+        print(f"AVISO: {missing} anotaciones sin photo_id, no se usan")
+        ann = ann[ann["photo_id"].notna()]
+    ann["photo_id"] = ann["photo_id"].astype("int64")
     if "saved_at" in ann:
         ann = ann.sort_values("saved_at")
     return ann.drop_duplicates(subset=ANNOTATION_KEY, keep="last")
@@ -145,7 +153,7 @@ def triage_for_excel(cfg: Config) -> pd.DataFrame:
 def build_excel(cfg: Config, out_name: str | None = None) -> Path:
     """
     Genera el Excel de entrega con el formato de Martin, en cualquier momento.
-    - Una fila por individuo x lado (o una por registro si aun no hay anotaciones).
+    - Una fila por foto x individuo (una por foto si la foto aun no esta anotada).
     - Solo valores: sin formulas, coordenadas numericas.
     - Hojas: identification, legend, excluded.
     """
@@ -154,7 +162,7 @@ def build_excel(cfg: Config, out_name: str | None = None) -> Path:
     from openpyxl.utils import get_column_letter
 
     p = paths(cfg)
-    obs, _ = load_tables(cfg)
+    obs, pho = load_tables(cfg)
     if obs.empty:
         raise RuntimeError("No hay observations.jsonl: correr build_tables primero")
 
@@ -169,10 +177,28 @@ def build_excel(cfg: Config, out_name: str | None = None) -> Path:
     else:
         excluded = obs.iloc[0:0]
 
-    # Unir las columnas del registro con las anotaciones (join, nunca copiando celdas)
+    # Esqueleto: una fila por foto (registro x foto). Join, nunca copiando celdas.
+    photos = (pho[["observation_id", "photo_id", "position"]]
+              .rename(columns={"position": "photo_position"}) if len(pho) else
+              pd.DataFrame(columns=["observation_id", "photo_id", "photo_position"]))
+    obs = obs.drop(columns=[c for c in ("photo_ids",) if c in obs])
+    skeleton = obs.merge(photos, on="observation_id", how="left")
+
+    # Anotaciones: una fila por individuo en cada foto anotada
     ann = load_annotations(cfg)
-    rec_cols = [c for c in obs.columns if c not in ann.columns or c == "observation_id"]
-    table = obs[rec_cols].merge(ann, on="observation_id", how="left")
+    keep = ["observation_id", "photo_id"]
+    rec_cols = [c for c in skeleton.columns if c not in ann.columns or c in keep]
+    table = skeleton[rec_cols].merge(ann, on=keep, how="left")
+
+    # n_cuttlebones anotado = letras distintas del registro (no filas), salvo que
+    # el anotador lo haya escrito explicitamente
+    if "n_cuttlebones" not in table:
+        table["n_cuttlebones"] = None
+    letters = table.groupby("observation_id")["individual"].nunique()
+    derived = table["observation_id"].map(letters).where(lambda x: x > 0)
+    table["n_cuttlebones"] = table["n_cuttlebones"].astype(object)
+    fill = table["n_cuttlebones"].isna() & derived.notna()
+    table.loc[fill, "n_cuttlebones"] = derived[fill].astype(int)
 
     # Triaje (GPT): completa state y n_cuttlebones SOLO donde no hay anotacion manual.
     # La anotacion de una persona siempre tiene prioridad sobre el modelo.
@@ -204,7 +230,7 @@ def build_excel(cfg: Config, out_name: str | None = None) -> Path:
     # Orden: sector, registro, individuo, lado. n° observation correlativo por sector
     if "site" not in table:
         table["site"] = None
-    table = table.sort_values(["site", "observation_id", "individual", "side"],
+    table = table.sort_values(["site", "observation_id", "photo_position", "individual"],
                               na_position="last").reset_index(drop=True)
     order = (table.drop_duplicates("observation_id")
              .assign(obs_n=lambda d: d.groupby("site", dropna=False).cumcount() + 1)
@@ -227,7 +253,7 @@ def build_excel(cfg: Config, out_name: str | None = None) -> Path:
         values = []
         for c in internal:
             v = _clean(rec.get(c))
-            if isinstance(v, (list, dict)):  # p. ej. photo_ids o crop_box
+            if isinstance(v, (list, dict)):  # p. ej. crop_box
                 v = json.dumps(v, ensure_ascii=False)
             values.append(v)
         ws.append(values)

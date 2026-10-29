@@ -100,26 +100,34 @@ def test_excel(api, cfg):
     sepia.download_observations(cfg)
     sepia.build_tables(cfg)
     ws = openpyxl.load_workbook(sepia.build_excel(cfg, "a.xlsx"))["identification"]
-    assert ws.max_row == 8 and ws.cell(2, 4).value == LAT
+    assert ws.max_row == 1 + 14 and ws.cell(2, 4).value == LAT     # 7 registros x 2 fotos
     assert not any(isinstance(c.value, str) and c.value.startswith("=")
                    for row in ws.iter_rows() for c in row)
 
+    # Registro 1: fotos 11 (dorsal) y 12 (ventral) del individuo a; en la foto 12
+    # aparece ademas un segundo hueso b. El lado es atributo de la fila.
     f = sepia.paths(cfg)["annotations"] / "HZ.jsonl"
-    sepia.append_jsonl({"observation_id": 1, "individual": "a", "side": "dorsal",
+    sepia.append_jsonl({"observation_id": 1, "photo_id": 11, "individual": "a", "side": "dorsal",
                         "epibionts": "yes", "saved_at": "2026-10-28T10:00"}, f)
-    sepia.append_jsonl({"observation_id": 1, "individual": "a", "side": "ventral",
+    sepia.append_jsonl({"observation_id": 1, "photo_id": 12, "individual": "a", "side": "ventral",
                         "bitemarks": "no", "saved_at": "2026-10-28T10:01"}, f)
-    sepia.append_jsonl({"observation_id": 1, "individual": "a", "side": "ventral",
+    sepia.append_jsonl({"observation_id": 1, "photo_id": 12, "individual": "a", "side": "ventral",
                         "bitemarks": "yes", "saved_at": "2026-10-28T10:05"}, f)   # correccion
+    sepia.append_jsonl({"observation_id": 1, "photo_id": 12, "individual": "b", "side": "dorsal",
+                        "saved_at": "2026-10-28T10:06"}, f)
+    sepia.append_jsonl({"observation_id": 1, "individual": "c", "side": "dorsal",
+                        "saved_at": "2026-10-28T10:07"}, f)                       # sin photo_id: se ignora
     wb = openpyxl.load_workbook(sepia.build_excel(cfg, "b.xlsx"))
     ws = wb["identification"]
     hdr = [c.value for c in ws[1]]
-    rows = [dict(zip(hdr, [c.value for c in r])) for r in ws.iter_rows(min_row=2)]
+    rows = [dict(zip(hdr, r)) for r in ws.iter_rows(min_row=2, values_only=True)]
     r1 = [r for r in rows if r["ID"] == 1]
-    assert len(rows) == 8 and len(r1) == 2
+    assert len(rows) == 15 and len(r1) == 3
+    assert [(r["photo_id"], r["individual (a,b,c,d,e)"]) for r in r1] == [(11, "a"), (12, "a"), (12, "b")]
     ventral = [r for r in r1 if r["ventral side (cuttlebone)"] == 1]
-    assert ventral[0]["¿bitemarks?"] == "yes"                    # vale la ultima
-    assert all(r["latitude"] == LAT for r in r1)                  # coordenadas repetidas por join
+    assert len(ventral) == 1 and ventral[0]["¿bitemarks?"] == "yes"   # vale la ultima
+    assert all(r["number individuals (cuttlebone)"] == 2 for r in r1)  # letras distintas, no filas
+    assert all(r["latitude"] == LAT for r in r1)                       # coordenadas por join
     assert wb.sheetnames == ["identification", "legend", "excluded"]
 
 
@@ -305,13 +313,14 @@ def test_excel_with_triage(api, cfg, monkeypatch):
     monkeypatch.setattr(sepia.triage.time, "sleep", lambda s: None)
     sepia.run_triage(cfg, provider=FakeProvider())
     f = sepia.paths(cfg)["annotations"] / "HZ.jsonl"
-    sepia.append_jsonl({"observation_id": 2, "individual": "a", "side": "dorsal",
+    sepia.append_jsonl({"observation_id": 2, "photo_id": 21, "individual": "a", "side": "dorsal",
                         "state": "egg case", "label_source": "annotator",
                         "saved_at": "2026-10-28T10:00"}, f)
     ws = openpyxl.load_workbook(sepia.build_excel(cfg, "t.xlsx"))["identification"]
     hdr = [c.value for c in ws[1]]
-    rows = {r[1]: dict(zip(hdr, r)) for r in ws.iter_rows(min_row=2, values_only=True)}
-    r1, r2 = rows[1], rows[2]
+    rows = {(r[1], r[hdr.index("photo_id")]): dict(zip(hdr, r))
+            for r in ws.iter_rows(min_row=2, values_only=True)}
+    r1, r2 = rows[(1, 11)], rows[(2, 21)]
     assert r1["state"] == "cuttlebone" and r1["number individuals (cuttlebone)"] == 1
     assert r1["label_source"] == "gpt" and r1["model_version"] == "m1/triage_v2"
     assert json.loads(r1["model_prob"])["confidence"] == "high"

@@ -131,12 +131,18 @@ la confianza no puede ser alta.
 !python scripts/build_excel.py --config configs/pilot_a1.yaml
 ```
 
+**Una fila por foto y por individuo.** Clave de una anotación: `observation_id` + `photo_id` +
+`individual`. El lado (`dorsal`, `ventral`, `unclear`) es un atributo de la fila: un hueso muestra
+un solo lado por foto. La letra del individuo se asigna en la primera foto donde aparece y se
+mantiene en todas las fotos del registro; `number individuals` = letras distintas, no filas.
+Las fotos aún no anotadas salen como una fila sin individuo.
+
 Une, por `observation_id`: registros (`tables/`), anotaciones (`annotations/`) y triaje
 (`outputs/`, modelo y versión de prompt de la sección `triage` del YAML). El triaje llena
 `state` y `number individuals (cuttlebone)` **solo donde no hay anotación manual**: la de una
 persona siempre gana. Las filas llenadas por el modelo quedan con `label_source = gpt`,
 `model_version = <modelo>/<prompt>`, `reviewed = False` y, en `model_prob`, la confianza y si
-el conteo es exacto (`count_possible`). Sin anotaciones hay una fila por registro.
+el conteo es exacto (`count_possible`). Sin anotaciones hay una fila por foto.
 
 ## Pruebas
 
