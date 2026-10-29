@@ -309,8 +309,9 @@ class AnnotationApp:
                 self.bbox = BBoxWidget(hide_buttons=True, view_only=True,
                                        layout=w.Layout(width=image_width))
             except ImportError:
-                print("AVISO: falta jupyter-bbox-widget; la foto se muestra sin recuadros "
-                      "(pip install jupyter-bbox-widget)")
+                self._no_box_reason = ("jupyter-bbox-widget is not installed: run "
+                                       "!pip install -q jupyter-bbox-widget and restart the app")
+                print("AVISO:", self._no_box_reason)
         self.viewer = self.bbox if self.bbox is not None else self.image
         self._box_updating = False
         self.table = w.HTML()
@@ -363,6 +364,9 @@ class AnnotationApp:
         self.draw_btn = w.ToggleButton(description="▭ Draw box", layout=w.Layout(width="110px"),
                                        disabled=self.bbox is None,
                                        tooltip="click, then drag a rectangle on the photo")
+        if self.bbox is None:           # que se vea en la interfaz por que no se puede dibujar
+            self.draw_btn.tooltip = getattr(self, "_no_box_reason", "boxes disabled (boxes=False)")
+            self.draw_btn.description = "▭ (no boxes)"
         clear_btn = w.Button(description="✕", layout=w.Layout(width="40px"), tooltip="remove box")
         clear_btn.on_click(lambda _: self._safe(self._clear_box))
         self.draw_btn.observe(lambda ch: self._safe(lambda: self._toggle_draw(ch["new"])), names="value")
