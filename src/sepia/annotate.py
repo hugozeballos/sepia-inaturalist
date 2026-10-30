@@ -69,9 +69,10 @@ def parse_duplicates(text):
 HELP = {
     "side": "dorsal: smoother, harder, granular, no growth lines · ventral: laminated, "
             "fine arc-shaped growth lines, often bite marks · unclear: edge-on, covered, blurry",
-    "photo_quality": "high: whole bone visible, in focus, nothing on top · medium: small areas "
-                     "hidden (grass, seaweed, fingers, litter, sand) · low: more than half hidden, "
-                     "OR blurry, OR too small/far to see details",
+    "photo_quality": "only what HIDES the bone lowers it · high: whole bone visible, in focus, "
+                     "nothing on top · medium: small areas hidden (grass, seaweed, fingers, wire, "
+                     "litter, sand layer) · low: more than half hidden, OR blurry, OR too small/far. "
+                     "Marks, bite marks, epibionts, stains, scattered grains do NOT lower it",
     "erosion": "1: outline complete (edge at most slightly worn) · 2: pieces missing, in total "
                "<10% · 3: 10% or more missing (incl. fragments) [threshold from Martin's guide]",
     "possible_duplicate_of": "the same bone appears in ANOTHER iNaturalist record: its ID, "

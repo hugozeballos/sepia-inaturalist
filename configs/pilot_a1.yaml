@@ -25,7 +25,7 @@ photo_traits:
   provider: gemini
   model: gemini-3.5-flash-lite
   temperature: 0
-  prompt_version: photo_traits_v2   # + calidad de foto y erosion con umbral 10% (v1: lado y erosion)
+  prompt_version: photo_traits_v3   # calidad: solo lo que TAPA el hueso la baja (v2: bajaba por marcas/particulas)
   image_size: 1024                  # mas detalle que el triaje: textura y bordes
   requests_per_minute: 8
   thinking_level: low
