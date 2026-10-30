@@ -44,7 +44,7 @@ EXCEL_COLUMNS = [
 ]
 
 # Columnas de trazabilidad: van al final de la tabla entregada
-TRACE_COLUMNS = ["photo_id", "photo_position", "n_in_photo", "crop_box", "label_source", "model_version", "model_prob",
+TRACE_COLUMNS = ["photo_id", "photo_position", "n_in_photo", "duplicate_of_photo", "crop_box", "label_source", "model_version", "model_prob",
                  "reviewed", "annotator", "round", "validation_set",
                  "possible_duplicate_of", "excluded_reason", "download_date", "notes"]
 
@@ -75,6 +75,7 @@ LEGEND = {
     "possible genus/specie of balano": "genus or species of Balanidae, if the photo allows",
     "photo_id": "iNaturalist photo ID of the row (one row per photo and individual)",
     "photo_position": "position of the photo in the iNaturalist record (1 = first)",
+    "duplicate_of_photo": "this photo repeats another photo of the same record (its photo ID): not annotated",
     "n_in_photo": "number of cuttlebones visible in the photo, annotated in detail or not (annotator)",
     "crop_box": "position of the individual in the photo",
     "label_source": "who assigned the labels: gpt, model, annotator",
@@ -183,17 +184,24 @@ def build_excel(cfg: Config, out_name: str | None = None) -> Path:
     if len(info):
         info = info[["observation_id", "photo_id", "n_in_photo"]].astype({"photo_id": "int64"})
         skeleton = skeleton.merge(info, on=["observation_id", "photo_id"], how="left")
+    dup = events["duplicate_photo"]
+    if len(dup):
+        dup = dup[["observation_id", "photo_id", "duplicate_of_photo"]].astype(
+            {"photo_id": "int64", "duplicate_of_photo": "int64"})
+        skeleton = skeleton.merge(dup, on=["observation_id", "photo_id"], how="left")
 
     # Anotaciones: una fila por individuo en cada foto anotada
     ann = events["individual"]
-    ann = ann.drop(columns=[c for c in ("kind", "deleted", "schema_version", "empty", "excluded_reason", "n_in_photo")
+    ann = ann.drop(columns=[c for c in ("kind", "deleted", "schema_version", "empty", "excluded_reason", "n_in_photo",
+                          "duplicate_of_photo")
                           if c in ann])
     keep = ["observation_id", "photo_id"]
     rec_cols = [c for c in skeleton.columns if c not in ann.columns or c in keep]
     table = skeleton[rec_cols].merge(ann, on=keep, how="left")
 
     # Fotos marcadas "sin individuos" o con "solo conteo": fila revisada, sin individuo
-    emp = (pd.concat([events["empty_photo"], events["photo_info"]], ignore_index=True)
+    emp = (pd.concat([events["empty_photo"], events["photo_info"], events["duplicate_photo"]],
+                     ignore_index=True)
            .drop_duplicates(subset=["observation_id", "photo_id"], keep="last"))
     if len(emp):
         is_empty = pd.MultiIndex.from_frame(table[["observation_id", "photo_id"]]).isin(

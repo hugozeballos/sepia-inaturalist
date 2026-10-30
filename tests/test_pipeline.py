@@ -583,3 +583,26 @@ def test_possible_duplicate(api, cfg):
     hdr = [c.value for c in wb[1]]
     r = dict(zip(hdr, next(wb.iter_rows(min_row=2, values_only=True))))
     assert r["possible_duplicate_of"] == "5:b"
+
+
+
+def test_duplicate_photo(api, cfg):
+    """Foto repetida: cuenta como revisada, sin individuos, y queda trazada en el Excel."""
+    pytest.importorskip("ipywidgets")
+    _ready(cfg)
+    app = sepia.AnnotationApp(cfg, annotator="HZ", boxes=False)
+    app._safe(app.on_save_next)                                  # foto 11: individuo a
+    assert app.row["photo_id"] == 12 and app.dup_of.value == 11
+    app._safe(app.on_duplicate)                                  # foto 12 = igual que la 11
+    assert app.row["photo_id"] == 21 and "same as" in app.msg.value.lower()
+    ev = sepia.load_events(cfg)
+    assert sepia.annotate.first_pending(app.queue, ev) == 2
+    app._go(1)
+    assert "Same as photo 1" in app.table.value
+    wb = openpyxl.load_workbook(sepia.build_excel(cfg, "dupph.xlsx"))["identification"]
+    hdr = [c.value for c in wb[1]]
+    rows = {r[hdr.index("photo_id")]: dict(zip(hdr, r)) for r in wb.iter_rows(min_row=2, values_only=True)}
+    assert rows[12]["duplicate_of_photo"] == 11 and rows[12]["reviewed"] is True
+    assert rows[12]["individual (a,b,c,d,e)"] is None and rows[11]["number individuals (cuttlebone)"] == 1
+    app._safe(app.on_save)                                       # anotar igual la foto 12: deshace
+    assert len(sepia.load_events(cfg)["duplicate_photo"]) == 0

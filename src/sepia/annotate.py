@@ -89,6 +89,7 @@ BONE_DEFAULTS = {"bitemarks": "no", "epibionts": "no"}
 KEYS = {"individual": ["observation_id", "photo_id", "individual"],
         "empty_photo": ["observation_id", "photo_id"],
         "photo_info": ["observation_id", "photo_id"],
+        "duplicate_photo": ["observation_id", "photo_id"],
         "exclude_record": ["observation_id"]}
 
 # Valor por defecto del estado para un individuo nuevo (casi todo son huesos)
@@ -191,6 +192,18 @@ def delete_individual(cfg, annotator, observation_id, photo_id, individual, roun
                    "individual": individual, "deleted": True}, round_)
 
 
+def mark_duplicate_photo(cfg, annotator, observation_id, photo_id, of_photo_id, round_=None):
+    """
+    La foto repite a otra del MISMO registro (mismo lado, mismo encuadre, no aporta nada):
+    no se anotan individuos en ella. of_photo_id=None deshace la marca.
+    """
+    if of_photo_id is not None and int(of_photo_id) == int(photo_id):
+        raise ValueError("a photo cannot be a duplicate of itself")
+    return _write(cfg, annotator, "duplicate_photo",
+                  {"observation_id": int(observation_id), "photo_id": int(photo_id),
+                   "duplicate_of_photo": None if of_photo_id is None else int(of_photo_id)}, round_)
+
+
 def save_photo_count(cfg, annotator, observation_id, photo_id, n_in_photo, round_=None):
     """
     Numero de huesos (individuos) que SE VEN en la foto, anotados o no en detalle.
@@ -228,7 +241,8 @@ def load_events(cfg: Config) -> dict[str, pd.DataFrame]:
     frames = [read_jsonl(f) for f in sorted(p["annotations"].glob("*.jsonl"))]
     frames = [f for f in frames if len(f)]
     extra = {"individual": ["deleted"] + FIELD_NAMES, "empty_photo": ["empty"],
-             "photo_info": ["n_in_photo"], "exclude_record": ["excluded_reason"]}
+             "photo_info": ["n_in_photo"], "duplicate_photo": ["duplicate_of_photo"],
+             "exclude_record": ["excluded_reason"]}
     out = {k: pd.DataFrame(columns=v + extra[k]) for k, v in KEYS.items()}
     if not frames:
         return out
@@ -251,7 +265,7 @@ def load_events(cfg: Config) -> dict[str, pd.DataFrame]:
                 d = d[~missing]
             d["photo_id"] = d["photo_id"].astype("int64")
         d["observation_id"] = d["observation_id"].astype("int64")
-        for c in ("deleted", "empty", "excluded_reason", "n_in_photo"):
+        for c in ("deleted", "empty", "excluded_reason", "n_in_photo", "duplicate_of_photo"):
             if c not in d:
                 d[c] = None
         d = d.drop_duplicates(subset=key, keep="last")
@@ -259,6 +273,8 @@ def load_events(cfg: Config) -> dict[str, pd.DataFrame]:
             d = d[d["deleted"] != True]          # noqa: E712 (puede ser NaN en lineas viejas)
         if kind == "empty_photo":
             d = d[d["empty"] == True]            # noqa: E712
+        if kind == "duplicate_photo":
+            d = d[d["duplicate_of_photo"].notna()]
         if kind == "exclude_record":
             d = d[d["excluded_reason"].fillna("") != ""]
         out[kind] = d.reset_index(drop=True)
@@ -286,7 +302,7 @@ def done_photos(events) -> set[tuple[int, int]]:
     solo el conteo guardado (fotos con muchos huesos).
     """
     done = set()
-    for k in ("individual", "empty_photo", "photo_info"):
+    for k in ("individual", "empty_photo", "photo_info", "duplicate_photo"):
         d = events[k]
         done |= set(zip(d["observation_id"].astype(int), d["photo_id"].astype(int)))
     return done
@@ -408,6 +424,10 @@ class AnnotationApp:
             b.on_click(lambda _: self._safe(cb))
             return b
 
+        # Foto repetida: "igual que la foto N" (mismo lado y encuadre; no se anota)
+        self.dup_of = w.Dropdown(options=[], layout=w.Layout(width="110px"),
+                                 tooltip="this photo repeats another photo of the record: "
+                                         "same side and framing, adds nothing new")
         # Tres columnas: foto | formulario | botones (todo a la vista, sin bajar).
         # Save = guardar y pasar a la siguiente foto (lo habitual).
         # Para otro individuo en la MISMA foto: "Save + another here".
@@ -421,6 +441,7 @@ class AnnotationApp:
             btn("Next pending ⏭", self.on_pending),
             btn("Photo without individuals", self.on_empty, "warning"),
             btn("Save count only ▶", self.on_count_only, "warning"),
+            w.HBox([self.dup_of, btn("Same as ▶", self.on_duplicate, "warning")]),
             w.HTML("<hr style='margin:6px 0'>"),
             self.reason,
             w.HBox([btn("Exclude record", self.on_exclude, "danger"),
@@ -563,6 +584,13 @@ class AnnotationApp:
         """Miniaturas de todas las fotos del registro; clic = ir a esa foto."""
         w = self.w
         rows = self.queue.index[self.queue["observation_id"] == oid]
+        others = [(f"photo {int(self.queue.loc[j, 'position'])}", int(self.queue.loc[j, "photo_id"]))
+                  for j in rows if j != self.i]
+        self.dup_of.options = others
+        self.dup_of.disabled = not others
+        if others:                       # por defecto: la foto anterior del registro (o la primera)
+            prev = [v for (_, v), j in zip(others, [j for j in rows if j != self.i]) if j < self.i]
+            self.dup_of.value = prev[-1] if prev else others[0][1]
         if len(rows) < 2:
             self.strip.children = ()
             return
@@ -623,8 +651,16 @@ class AnnotationApp:
             self.table.value = ("<b>In this photo:</b>" +
                                 here[cols].fillna("").to_html(index=False, border=0))
         else:
-            self.table.value = "<b>Photo without individuals</b>" if is_empty else \
-                               "<i>No individuals yet in this photo</i>"
+            dups = self.events["duplicate_photo"]
+            dup = dups.loc[(dups["observation_id"] == oid) & (dups["photo_id"] == pid),
+                           "duplicate_of_photo"]
+            if len(dup):
+                pos = self.queue.loc[self.queue["photo_id"] == int(dup.iloc[0]), "position"]
+                self.table.value = (f"<b>Same as photo {int(pos.iloc[0]) if len(pos) else dup.iloc[0]}"
+                                    "</b> (not annotated)")
+            else:
+                self.table.value = "<b>Photo without individuals</b>" if is_empty else \
+                                   "<i>No individuals yet in this photo</i>"
 
         letters = letters_in_record(self.events, oid)
         here_letters = set(here["individual"]) if len(here) else set()
@@ -716,6 +752,10 @@ class AnnotationApp:
         empty = self.events["empty_photo"]
         if ((empty["observation_id"] == r["observation_id"]) & (empty["photo_id"] == r["photo_id"])).any():
             mark_empty_photo(self.cfg, self.annotator, r["observation_id"], r["photo_id"], False, self.round)
+        dups = self.events["duplicate_photo"]
+        if ((dups["observation_id"] == r["observation_id"]) & (dups["photo_id"] == r["photo_id"])).any():
+            mark_duplicate_photo(self.cfg, self.annotator, r["observation_id"], r["photo_id"],
+                                 None, self.round)
         save_individual(self.cfg, self.annotator, r["observation_id"], r["photo_id"],
                         self.letter.value, vals, self.round,
                         crop_box=parse_crop_box(self.crop.value))
@@ -739,6 +779,20 @@ class AnnotationApp:
         if not len(prev) or int(prev.iloc[0]) != int(self.n_photo.value):
             save_photo_count(self.cfg, self.annotator, r["observation_id"], r["photo_id"],
                              self.n_photo.value, self.round)
+
+    def on_duplicate(self):
+        """Marca la foto como repetida de otra del registro y pasa a la siguiente."""
+        if len(self._individuals_here()):
+            raise ValueError("this photo has individuals: delete them first")
+        if self.dup_of.value is None:
+            raise ValueError("this record has no other photo")
+        r = self.row
+        mark_duplicate_photo(self.cfg, self.annotator, r["observation_id"], r["photo_id"],
+                             self.dup_of.value, self.round)
+        label = self.dup_of.label
+        self._reload()
+        self._go(self.i + 1)
+        self.msg.value = f"<b style='color:#070'>Marked as same as {label} · next photo</b>"
 
     def on_count_only(self):
         """Foto con muchos huesos: guardar solo el conteo, sin anotar cada individuo."""

@@ -165,6 +165,10 @@ anotados en detalle o no; sirve para comparar con el conteo por foto del triaje.
 muchos huesos: escribir el total y **Save count only ▶** (no hace falta anotar cada uno).
 El estado viene por defecto como `cuttlebone`.
 
+**Foto repetida:** si una foto repite a otra del registro (mismo lado y encuadre, no aporta nada),
+elegir cuál en el desplegable y **Same as ▶**: queda revisada, sin individuos, con
+`duplicate_of_photo` en el Excel. Si muestra otro lado, un acercamiento o algo nuevo, se anota.
+
 Flujo por foto: elegir la letra del individuo (las ya usadas en el registro aparecen en la
 lista; una letra de otra foto es el mismo hueso), llenar los campos
 y **Save ▶** (guarda y pasa a la siguiente foto) o **Save + another here** (otro individuo en la misma foto). Los campos de detalle solo aparecen
@@ -178,7 +182,7 @@ coordenadas relativas `{x0, y0, x1, y1}` (0-1) sobre la foto enderezada (EXIF ap
 para cualquier tamaño. `sepia.annotate.crop_photo(ruta, crop_box)` recorta el individuo.
 
 Se guarda en `annotations/manual_<anotador>.jsonl`, una línea por acción (`kind`: `individual`,
-`empty_photo`, `photo_info`, `exclude_record`), con `schema_version`, `annotator`, `round` y `saved_at` (UTC).
+`empty_photo`, `photo_info`, `duplicate_photo`, `exclude_record`), con `schema_version`, `annotator`, `round` y `saved_at` (UTC).
 Nada se borra: corregir es guardar de nuevo; para cada clave vale la última línea. Un anotador =
 un archivo (dos personas en el mismo archivo de Drive pueden pisarse).
 
