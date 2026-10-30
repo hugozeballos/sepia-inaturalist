@@ -72,7 +72,8 @@ HELP = {
     "photo_quality": "only what HIDES the bone lowers it · high: whole bone visible, in focus, "
                      "nothing on top · medium: small areas hidden (grass, seaweed, fingers, wire, "
                      "litter, sand layer) · low: more than half hidden, OR blurry, OR too small/far. "
-                     "Marks, bite marks, epibionts, stains, scattered grains do NOT lower it",
+                     "Marks, bite marks, epibionts, stains, isolated grains do NOT lower it; "
+                     "a patch/film of sand or seaweed ON the bone DOES",
     "erosion": "1: outline complete (edge at most slightly worn) · 2: pieces missing, in total "
                "<10% · 3: 10% or more missing (incl. fragments) [threshold from Martin's guide]",
     "possible_duplicate_of": "the same bone appears in ANOTHER iNaturalist record: its ID, "
@@ -377,7 +378,11 @@ class AnnotationApp:
         self._box_updating = False
         self.table = w.HTML()
         # A nivel de FOTO: cuantos huesos se ven (anotados o no en detalle). 1 por defecto.
+        # Misma regla que photo_traits_v4: cuenta si se ve al menos ~la mitad del hueso.
         self.n_photo = w.BoundedIntText(value=1, min=0, max=999, description="Individuals in photo",
+                                        tooltip="bones with at least ~half visible (whole, half-bone "
+                                                "fragment, or cut by the photo edge with half inside); "
+                                                "small pieces at the edge do not count",
                                         layout=w.Layout(width="260px"))
         self.n_photo.style.description_width = "160px"
         self.letter = w.Dropdown(description="Individual", layout=w.Layout(width="260px"))
