@@ -559,3 +559,25 @@ def test_photo_traits(api, cfg, monkeypatch):
     c = cmp.set_index("photo_id")
     assert c.loc[11, "side_human"] == "ventral" and c.loc[12, "side_model"] == "ventral"
     assert c.loc[12, "n_in_photo"] == 2 and c.loc[11, "photo_quality_model"] == "medium"
+
+
+
+def test_possible_duplicate(api, cfg):
+    """Mismo hueso en otro registro: se valida, se guarda y va al Excel."""
+    pytest.importorskip("ipywidgets")
+    from sepia import annotate as an
+    assert an.parse_duplicates(" 405594162:A , 409584581") == "405594162:a, 409584581"
+    assert an.parse_duplicates("") is None
+    with pytest.raises(ValueError):
+        an.parse_duplicates("record 4055")
+    _ready(cfg)
+    app = sepia.AnnotationApp(cfg, annotator="HZ", boxes=False)
+    app.inputs["possible_duplicate_of"].value = "1:a"            # su propio registro: error
+    app._safe(app.on_save)
+    assert "same record" in app.msg.value
+    app.inputs["possible_duplicate_of"].value = "5:b"
+    app._safe(app.on_save)
+    wb = openpyxl.load_workbook(sepia.build_excel(cfg, "dup.xlsx"))["identification"]
+    hdr = [c.value for c in wb[1]]
+    r = dict(zip(hdr, next(wb.iter_rows(min_row=2, values_only=True))))
+    assert r["possible_duplicate_of"] == "5:b"

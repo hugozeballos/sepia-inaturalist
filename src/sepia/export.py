@@ -84,7 +84,7 @@ LEGEND = {
     "annotator": "initials of the annotator or reviewer",
     "round": "annotation round (1, 2, 3, full)",
     "validation_set": "whether the row belongs to the fixed validation set",
-    "possible_duplicate_of": "observation ID of a possible duplicate by another user",
+    "possible_duplicate_of": "same bone in another iNaturalist record (same or other user): observation ID, optionally :letter there",
     "excluded_reason": "reason for excluding the record",
     "download_date": "date the record was downloaded from iNaturalist",
     "notes": "free-text remarks of the annotator (doubts, unusual cases)",

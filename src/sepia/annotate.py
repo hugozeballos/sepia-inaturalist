@@ -42,9 +42,26 @@ FIELDS = [
     ("barnacle_size", "Barnacle size", ["small", "medium", "large"], "barnacle"),
     ("barnacle_taxon", "Barnacle genus/species", "text", "barnacle"),
     ("certainty", "Certainty", [1, 0], "all"),
+    ("possible_duplicate_of", "Same bone as (ID:letter)", "text", "all"),
     ("notes", "Notes", "text", "all"),
 ]
 FIELD_NAMES = [f[0] for f in FIELDS]
+
+# Mismo hueso en OTRO registro: "<observation_id>" o "<observation_id>:<letra>",
+# varios separados por coma. Solo marca (no excluye); pendiente con Martin que hacer con ellos.
+import re as _re
+_DUP = _re.compile(r"^\d+(:[a-z][a-z0-9]*)?$")
+
+
+def parse_duplicates(text):
+    """'405594162:a, 409584581' -> '405594162:a, 409584581' (normalizado) o None. Error si no es valido."""
+    if not text or not str(text).strip():
+        return None
+    items = [t.strip().lower() for t in str(text).split(",") if t.strip()]
+    bad = [t for t in items if not _DUP.match(t)]
+    if bad:
+        raise ValueError(f"'Same bone as' must be IDs like 405594162 or 405594162:a (not {bad})")
+    return ", ".join(items)
 
 # Definiciones (las mismas del prompt photo_traits_v2): se muestran al pasar el mouse
 HELP = {
@@ -55,6 +72,8 @@ HELP = {
                      "OR blurry, OR too small/far to see details",
     "erosion": "1: outline complete (edge at most slightly worn) · 2: pieces missing, in total "
                "<10% · 3: 10% or more missing (incl. fragments) [threshold from Martin's guide]",
+    "possible_duplicate_of": "the same bone appears in ANOTHER iNaturalist record: its ID, "
+                             "optionally with the letter there (405594162:a). Several: comma-separated",
     "bitemarks": "yes: clear (triangular nicks, beak shape) · (yes): probable · no: ventral side "
                  "visible, no marks · —: cannot be assessed",
 }
@@ -362,7 +381,9 @@ class AnnotationApp:
         self.inputs = {}
         for name, label, opts, group in FIELDS:
             if opts == "text":
-                wid = w.Text(description=label, layout=w.Layout(width="320px"))
+                wid = w.Text(description=label, layout=w.Layout(width="320px"),
+                             tooltip=HELP.get(name, ""),
+                             placeholder="e.g. 405594162:a" if name == "possible_duplicate_of" else "")
             else:
                 wid = w.Dropdown(description=label, options=[("—", None)] + [(str(o), o) for o in opts],
                                  tooltip=HELP.get(name, ""),
@@ -667,6 +688,11 @@ class AnnotationApp:
             visible = group == "all" or (group == "bone" and is_bone) or (group == "barnacle" and has_epi)
             v = self.inputs[name].value if visible else None   # campos ocultos no se guardan
             vals[name] = (v.strip() or None) if isinstance(v, str) else v
+        vals["possible_duplicate_of"] = parse_duplicates(vals.get("possible_duplicate_of"))
+        own = str(int(self.row["observation_id"]))
+        if vals["possible_duplicate_of"] and any(t.split(":")[0] == own
+                                                 for t in vals["possible_duplicate_of"].split(", ")):
+            raise ValueError("'Same bone as' points to this same record (use the letter instead)")
         return vals
 
     def _go(self, i):
