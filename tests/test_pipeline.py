@@ -533,7 +533,8 @@ class FakeTraits:
     name = "fake"
     def classify(self, images, prompt, schema=None):
         assert schema is sepia.photo_traits.PhotoTraits and len(images) == 1
-        res = {"n_cuttlebones_visible": 1, "side": "ventral", "erosion": "2", "notes": ""}
+        res = {"n_cuttlebones_visible": 1, "side": "ventral", "erosion": "2",
+               "photo_quality": "medium", "notes": ""}
         return res, json.dumps(res), {"input_tokens": 300, "output_tokens": 20}
 
 
@@ -548,7 +549,7 @@ def test_photo_traits(api, cfg, monkeypatch):
     t = pt.load_photo_traits(cfg)
     assert len(t) == 14 and t["side"].eq("ventral").all()
     r, rules = pt.apply_rules({"n_cuttlebones_visible": 3, "side": "dorsal", "erosion": "1"})
-    assert r["side"] == r["erosion"] == "not_applicable" and len(rules) == 2
+    assert r["side"] == r["erosion"] == r["photo_quality"] == "not_applicable" and len(rules) == 3
     # anotacion: foto 11 ventral/2 (acuerdo), foto 12 dorsal/1 (desacuerdo)
     an.save_individual(cfg, "HZ", 1, 11, "a", {"state": "cuttlebone", "side": "ventral", "erosion": 2})
     an.save_photo_count(cfg, "HZ", 1, 11, 1)
@@ -557,4 +558,4 @@ def test_photo_traits(api, cfg, monkeypatch):
     cmp = pt.evaluate_photo_traits(cfg)
     c = cmp.set_index("photo_id")
     assert c.loc[11, "side_human"] == "ventral" and c.loc[12, "side_model"] == "ventral"
-    assert c.loc[12, "n_in_photo"] == 2
+    assert c.loc[12, "n_in_photo"] == 2 and c.loc[11, "photo_quality_model"] == "medium"

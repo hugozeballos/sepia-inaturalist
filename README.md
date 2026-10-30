@@ -128,8 +128,8 @@ la confianza no puede ser alta.
 ## Lado y erosión por foto (Gemini, sin ejemplos)
 
 Paso aparte del triaje (no cambia el conteo por registro): una consulta por foto, a 1024 px,
-con `prompts/photo_traits_v1.txt` (definiciones de la guía de Martin). Pide huesos visibles y,
-solo si hay **exactamente un hueso**, el lado y la erosión (regla fija: con 0 o varios huesos,
+con `prompts/photo_traits_v2.txt` (definiciones de la guía de Martin, hechas operativas). Pide huesos visibles y,
+solo si hay **exactamente un hueso**, el lado, la erosión y la calidad de la foto (regla fija: con 0 o varios huesos,
 `not_applicable`). Sección `photo_traits` del YAML; salida en
 `outputs/photo_traits_<proveedor>_<modelo>.jsonl`. La interfaz de anotación no muestra estos
 resultados.

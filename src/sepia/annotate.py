@@ -46,6 +46,19 @@ FIELDS = [
 ]
 FIELD_NAMES = [f[0] for f in FIELDS]
 
+# Definiciones (las mismas del prompt photo_traits_v2): se muestran al pasar el mouse
+HELP = {
+    "side": "dorsal: smoother, harder, granular, no growth lines · ventral: laminated, "
+            "fine arc-shaped growth lines, often bite marks · unclear: edge-on, covered, blurry",
+    "photo_quality": "high: whole bone visible, in focus, nothing on top · medium: small areas "
+                     "hidden (grass, seaweed, fingers, litter, sand) · low: more than half hidden, "
+                     "OR blurry, OR too small/far to see details",
+    "erosion": "1: outline complete (edge at most slightly worn) · 2: pieces missing, in total "
+               "<10% · 3: 10% or more missing (incl. fragments) [threshold from Martin's guide]",
+    "bitemarks": "yes: clear (triangular nicks, beak shape) · (yes): probable · no: ventral side "
+                 "visible, no marks · —: cannot be assessed",
+}
+
 # Valores sugeridos al marcar un hueso nuevo (se pueden cambiar). "—" (vacio) queda
 # reservado para "no se puede evaluar" (lado tapado, foto borrosa...): no es lo mismo que "no".
 BONE_DEFAULTS = {"bitemarks": "no", "epibionts": "no"}
@@ -352,6 +365,7 @@ class AnnotationApp:
                 wid = w.Text(description=label, layout=w.Layout(width="320px"))
             else:
                 wid = w.Dropdown(description=label, options=[("—", None)] + [(str(o), o) for o in opts],
+                                 tooltip=HELP.get(name, ""),
                                  layout=w.Layout(width="260px"))
             wid.style.description_width = "120px"
             self.inputs[name] = wid

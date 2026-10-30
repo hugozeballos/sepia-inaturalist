@@ -1,5 +1,6 @@
 """
-Rasgos por foto con un modelo de vision: huesos visibles, lado (dorsal/ventral) y erosion.
+Rasgos por foto con un modelo de vision: huesos visibles, lado (dorsal/ventral), erosion
+y (desde photo_traits_v2) calidad de la foto.
 
 Paso aparte del triaje (que cuenta por registro): una consulta por foto, prompt propio
 (prompts/photo_traits_v1.txt), salida en outputs/photo_traits_<proveedor>_<modelo>.jsonl.
@@ -25,12 +26,14 @@ from .triage import (load_prompt, make_provider, RateLimited, FatalProviderError
 
 Side = Literal["dorsal", "ventral", "unclear", "not_applicable"]
 Erosion = Literal["1", "2", "3", "unclear", "not_applicable"]
+Quality = Literal["high", "medium", "low", "not_applicable"]   # desde photo_traits_v2
 
 
 class PhotoTraits(BaseModel):
     n_cuttlebones_visible: int
     side: Side
     erosion: Erosion
+    photo_quality: Quality = "not_applicable"
     notes: str
 
 
@@ -38,7 +41,7 @@ def apply_rules(result: dict) -> tuple[dict, list[str]]:
     """Regla fija: lado y erosion solo con exactamente 1 hueso visible."""
     r, applied = dict(result), []
     if r.get("n_cuttlebones_visible") != 1:
-        for k in ("side", "erosion"):
+        for k in ("side", "erosion", "photo_quality"):
             if r.get(k) != "not_applicable":
                 r[k] = "not_applicable"
                 applied.append(f"n_visible!=1 -> {k}=not_applicable")
@@ -119,7 +122,7 @@ def run_photo_traits(cfg: Config, provider=None, limit: int | None = None,
             stats["output_tokens"] += usage.get("output_tokens") or 0
             print(f"{n}/{len(todo)} · {r.observation_id} foto {r.position} · "
                   f"{result['n_cuttlebones_visible']} huesos · lado {result['side']} · "
-                  f"erosion {result['erosion']}", flush=True)
+                  f"erosion {result['erosion']} · calidad {result.get('photo_quality')}", flush=True)
         except RateLimited as e:
             print(f"Limite de uso persistente. Se detiene; reanudar mas tarde.\n  {e}")
             break
@@ -169,16 +172,21 @@ def evaluate_photo_traits(cfg: Config) -> pd.DataFrame:
     info = ev["photo_info"][["photo_id", "n_in_photo"]].astype({"photo_id": "int64"})
     ind = ev["individual"]
     one = ind.groupby("photo_id").filter(lambda g: len(g) == 1)
-    one = one[["photo_id", "side", "erosion"]].rename(columns={"side": "side_human",
-                                                                 "erosion": "erosion_human"})
-    t = (model.rename(columns={"side": "side_model", "erosion": "erosion_model"})
+    for c in ("side", "erosion", "photo_quality"):
+        if c not in one:
+            one[c] = None
+        if c not in model:
+            model[c] = "not_applicable"
+    one = one[["photo_id", "side", "erosion", "photo_quality"]].rename(
+        columns={c: f"{c}_human" for c in ("side", "erosion", "photo_quality")})
+    t = (model.rename(columns={c: f"{c}_model" for c in ("side", "erosion", "photo_quality")})
          .merge(info, on="photo_id", how="left").merge(one, on="photo_id", how="left"))
 
     cnt = t[t["n_in_photo"].notna()]
     if len(cnt):
         ok = (cnt["n_cuttlebones_visible"] == cnt["n_in_photo"]).mean()
         print(f"Huesos visibles por foto: {ok:.0%} iguales ({len(cnt)} fotos anotadas)")
-    for var in ("side", "erosion"):
+    for var in ("side", "erosion", "photo_quality"):
         h = t[f"{var}_human"]
         m = t[f"{var}_model"].astype(str)
         sub = t[h.notna() & (m != "not_applicable")].copy()
