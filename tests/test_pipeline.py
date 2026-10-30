@@ -618,8 +618,9 @@ def test_keyboard_shortcuts(api, cfg):
     send = lambda code: app.keys._handle_custom_msg({"code": code}, [])
     send("KeyA")                                                 # guarda a, se queda en la foto 11
     assert app.row["photo_id"] == 11 and app.letter.value == "b"
+    t0 = app.keys.tick
     send("KeyS")                                                 # guarda b y avanza
-    assert app.row["photo_id"] == 12
+    assert app.row["photo_id"] == 12 and app.keys.tick == t0 + 1  # avisa: volver arriba
     send("KeyP")
     assert app.row["photo_id"] == 11
     send("KeyZ")                                                 # tecla sin accion: no hace nada

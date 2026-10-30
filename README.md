@@ -167,7 +167,7 @@ El estado viene por defecto como `cuttlebone`.
 
 **Atajos de teclado** (requieren `anywidget`, que se instala con `jupyter-bbox-widget`):
 Alt+S = Save ▶, Alt+A = Save + another here (queda lista una letra nueva), Alt+N / Alt+P =
-foto siguiente / anterior. Funcionan cuando el foco está dentro de la interfaz (después de un clic en ella).
+foto siguiente / anterior, Alt+T = volver al inicio del formulario (también automático al cambiar de foto). Funcionan cuando el foco está dentro de la interfaz (después de un clic en ella).
 
 **Foto repetida:** si una foto repite a otra del registro (mismo lado y encuadre, no aporta nada),
 elegir cuál en el desplegable y **Same as ▶**: queda revisada, sin individuos, con

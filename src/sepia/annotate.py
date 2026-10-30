@@ -345,18 +345,29 @@ def next_letter(existing) -> str:
 SHORTCUTS = {"KeyS": "save_next", "KeyA": "save_here", "KeyN": "next", "KeyP": "prev"}
 
 _KEYS_ESM = """
+function toTop() {
+  // ir al inicio de la interfaz y dejar el foco en el primer campo del formulario
+  const app = document.querySelector(".sepia-app");
+  if (app) app.scrollIntoView({ block: "start", behavior: "instant" });
+  const first = document.querySelector(".sepia-form select, .sepia-form input");
+  if (first) first.focus({ preventScroll: true });
+}
 export default {
   render({ model, el }) {
     el.innerHTML = "<small style='opacity:.7'>⌨ Alt+S save ▶ · Alt+A save + another · "
-                 + "Alt+N next · Alt+P prev</small>";
+                 + "Alt+N next · Alt+P prev · Alt+T top of form</small>";
     const codes = model.get("codes");
     const onKey = (e) => {
-      if (!e.altKey || e.ctrlKey || e.metaKey || !codes.includes(e.code)) return;
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.code === "KeyT") { e.preventDefault(); toTop(); return; }
+      if (!codes.includes(e.code)) return;
       e.preventDefault();
       e.stopPropagation();
       model.send({ code: e.code });
     };
     document.addEventListener("keydown", onKey, true);
+    // Python sube 'tick' al cambiar de foto: volver arriba automaticamente
+    model.on("change:tick", () => setTimeout(toTop, 50));
     return () => document.removeEventListener("keydown", onKey, true);
   }
 };
@@ -374,6 +385,7 @@ def _make_key_listener():
     class KeyListener(anywidget.AnyWidget):
         _esm = _KEYS_ESM
         codes = traitlets.List(traitlets.Unicode()).tag(sync=True)
+        tick = traitlets.Int(0).tag(sync=True)      # cambia al pasar de foto -> volver arriba
 
     return KeyListener(codes=list(SHORTCUTS))
 
@@ -520,8 +532,10 @@ class AnnotationApp:
             self.keys.on_msg(lambda _w, content, _b: self._safe(
                 actions[SHORTCUTS[content["code"]]]) if content.get("code") in SHORTCUTS else None)
         extra = [self.keys] if self.keys is not None else []
+        form.add_class("sepia-form")
         self.box = w.VBox([self.header, self.strip,
                            w.HBox([self.viewer, form, self.buttons])] + extra)
+        self.box.add_class("sepia-app")
         self._render()
 
     # --- utilidades ---
@@ -787,6 +801,8 @@ class AnnotationApp:
     def _go(self, i):
         self.i = max(0, min(i, len(self.queue) - 1))
         self._render()
+        if getattr(self, "keys", None) is not None:
+            self.keys.tick += 1                       # el navegador vuelve al inicio del formulario
 
     # --- acciones ---
     def on_save(self):
