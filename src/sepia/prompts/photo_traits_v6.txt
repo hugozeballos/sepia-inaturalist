@@ -14,12 +14,18 @@ photo) or small fragments: they do not prevent describing the main bone. Use 0 i
 2. Only if EXACTLY ONE cuttlebone is visible, describe it. Otherwise use "not_applicable" for "side", "side_basis", "erosion" and "photo_quality".
 
 "side": which side of the cuttlebone faces the camera.
-- "dorsal": the dorsal side is smoother and harder, usually slightly convex, with a fine granular or warty surface and no layered growth lines running across the bone.
-  Many fine, parallel lines running LENGTHWISE along the bone, from tip to tip (following
-  its curvature), indicate the dorsal side. Their absence does NOT indicate ventral.
-- "ventral": the ventral side is laminated: it shows many fine, parallel, arc-shaped growth lines (layers) over most of the surface, running ACROSS the bone (not along it). It is softer and often shows bite marks.
+- "dorsal": the hard, usually slightly convex shield of the bone, often with a fine granular
+  or warty surface. The key sign: fine, STRAIGHT, parallel lines that run LENGTHWISE along
+  the bone and cross it from one end (tip) to the other end.
+  If you see these lines, the side is dorsal.
+  If you do not see them, that does NOT mean ventral: they are often faint or not visible.
+- "ventral": the softer side, chalky and porous-looking, usually flat or slightly concave,
+  often with a U- or V-shaped rim near the posterior end (the end with the small spine).
+  It often shows bite marks.
+  Never decide "ventral" because of lines: lines are a sign of the DORSAL side only.
 - Lines that are not part of the bone do not count: background objects (wire, mesh, fences,
-  sticks, seaweed), shadows, cracks or fractures.
+  sticks, seaweed), shadows, cracks or fractures. Short, curved or irregular marks are not
+  the dorsal lines.
 - "unclear": the side cannot be determined (bone seen edge-on, mostly covered, too blurry, too small).
 
 First decide the side of each photo on its own, from that photo only.
@@ -38,7 +44,7 @@ using other photos of this same record:
 
 "side_basis": how the side was decided.
 - "direct": decided from this photo alone, without using the lengthwise-lines rule.
-- "lines_rule": decided "dorsal" from this photo alone because of the lengthwise lines.
+- "lines_rule": decided "dorsal" from this photo alone because of the straight lengthwise lines.
 - "inferred_same_bone": decided with the cross-photo rule, comparing with the same cuttlebone in another photo.
 - "inferred_other_bone": decided with the cross-photo rule, comparing with a different cuttlebone of this record.
 - "unclear": the side is "unclear".

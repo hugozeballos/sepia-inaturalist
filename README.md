@@ -174,7 +174,10 @@ sumar tokens, contar una vez por `call_id`). `--limit` cuenta registros en este 
 | `unclear` / `not_applicable` | sin lado | v5, v6 |
 
 - `photo_traits_v5`: definiciones de v4 + regla entre fotos.
-- `photo_traits_v6`: v5 + regla de las líneas (líneas a lo largo → dorsal; su ausencia no dice nada).
+- `photo_traits_v6`: v5 con las definiciones de lado corregidas: las líneas rectas y finas que
+  atraviesan el hueso a lo largo, de punta a punta, son señal **solo del dorsal** (su ausencia no dice
+  nada); el ventral se describe sin líneas (blando, poroso, borde en U o V cerca de la punta posterior).
+  v4 y v5 describen el ventral por "líneas finas paralelas", lo que puede marcar ventrales los dorsales.
 
 Para probar otra versión sin editar el YAML:
 
