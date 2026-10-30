@@ -567,6 +567,8 @@ def test_possible_duplicate(api, cfg):
     pytest.importorskip("ipywidgets")
     from sepia import annotate as an
     assert an.parse_duplicates(" 405594162:A , 409584581") == "405594162:a, 409584581"
+    assert an.parse_duplicates("337987515 :a") == "337987515:a"
+    assert an.parse_duplicates("337987515 : a; 1") == "337987515:a, 1"
     assert an.parse_duplicates("") is None
     with pytest.raises(ValueError):
         an.parse_duplicates("record 4055")

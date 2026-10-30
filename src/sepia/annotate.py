@@ -57,7 +57,9 @@ def parse_duplicates(text):
     """'405594162:a, 409584581' -> '405594162:a, 409584581' (normalizado) o None. Error si no es valido."""
     if not text or not str(text).strip():
         return None
-    items = [t.strip().lower() for t in str(text).split(",") if t.strip()]
+    # tolerante con espacios: "337987515 :a", "337987515 : a" -> "337987515:a"
+    items = [_re.sub(r"\s+", "", t).lower() for t in str(text).replace(";", ",").split(",")
+             if t.strip()]
     bad = [t for t in items if not _DUP.match(t)]
     if bad:
         raise ValueError(f"'Same bone as' must be IDs like 405594162 or 405594162:a (not {bad})")
