@@ -606,3 +606,21 @@ def test_duplicate_photo(api, cfg):
     assert rows[12]["individual (a,b,c,d,e)"] is None and rows[11]["number individuals (cuttlebone)"] == 1
     app._safe(app.on_save)                                       # anotar igual la foto 12: deshace
     assert len(sepia.load_events(cfg)["duplicate_photo"]) == 0
+
+
+
+def test_keyboard_shortcuts(api, cfg):
+    """Alt+S guarda y avanza; Alt+A guarda y se queda; Alt+P vuelve."""
+    pytest.importorskip("anywidget")
+    _ready(cfg)
+    app = sepia.AnnotationApp(cfg, annotator="HZ", boxes=False)
+    assert app.keys is not None and "KeyS" in app.keys.codes
+    send = lambda code: app.keys._handle_custom_msg({"code": code}, [])
+    send("KeyA")                                                 # guarda a, se queda en la foto 11
+    assert app.row["photo_id"] == 11 and app.letter.value == "b"
+    send("KeyS")                                                 # guarda b y avanza
+    assert app.row["photo_id"] == 12
+    send("KeyP")
+    assert app.row["photo_id"] == 11
+    send("KeyZ")                                                 # tecla sin accion: no hace nada
+    assert len(sepia.load_events(cfg)["individual"]) == 2

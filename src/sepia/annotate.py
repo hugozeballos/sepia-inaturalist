@@ -340,6 +340,43 @@ def next_letter(existing) -> str:
 # Interfaz (Colab)
 # --------------------------------------------------------------------------
 
+# Atajos de teclado: Alt + tecla (no chocan con lo que se escribe en los campos de texto).
+# Se usa e.code (posicion fisica de la tecla): funciona igual con teclado en espanol o ingles.
+SHORTCUTS = {"KeyS": "save_next", "KeyA": "save_here", "KeyN": "next", "KeyP": "prev"}
+
+_KEYS_ESM = """
+export default {
+  render({ model, el }) {
+    el.innerHTML = "<small style='opacity:.7'>⌨ Alt+S save ▶ · Alt+A save + another · "
+                 + "Alt+N next · Alt+P prev</small>";
+    const codes = model.get("codes");
+    const onKey = (e) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || !codes.includes(e.code)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      model.send({ code: e.code });
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }
+};
+"""
+
+
+def _make_key_listener():
+    """Control invisible que escucha el teclado. None si anywidget no esta instalado."""
+    try:
+        import anywidget
+        import traitlets
+    except ImportError:
+        return None
+
+    class KeyListener(anywidget.AnyWidget):
+        _esm = _KEYS_ESM
+        codes = traitlets.List(traitlets.Unicode()).tag(sync=True)
+
+    return KeyListener(codes=list(SHORTCUTS))
+
 class AnnotationApp:
     """
     Interfaz de anotacion para Colab. Uso:
@@ -434,7 +471,7 @@ class AnnotationApp:
         col = w.Layout(width="220px")
         self.buttons = w.VBox([
             btn("Save ▶", self.on_save_next, "success"),
-            btn("Save + another here", self.on_save, "info"),
+            btn("Save + another here", self.on_save_here, "info"),
             btn("Delete individual", self.on_delete, "danger"),
             w.HTML("<hr style='margin:6px 0'>"),
             w.HBox([btn("◀ Prev", self.on_prev), btn("Next ▶", self.on_next)]),
@@ -475,8 +512,16 @@ class AnnotationApp:
         form = w.VBox([self.table, self.n_photo, w.HTML("<hr style='margin:4px 0'>"), self.letter,
                        w.HBox([self.crop, self.draw_btn, clear_btn])] + list(self.inputs.values()),
                       layout=w.Layout(margin="0 12px"))
+        # Atajos de teclado (opcional: requiere anywidget, que instala jupyter-bbox-widget)
+        self.keys = _make_key_listener()
+        actions = {"save_next": self.on_save_next, "save_here": self.on_save_here,
+                   "next": self.on_next, "prev": self.on_prev}
+        if self.keys is not None:
+            self.keys.on_msg(lambda _w, content, _b: self._safe(
+                actions[SHORTCUTS[content["code"]]]) if content.get("code") in SHORTCUTS else None)
+        extra = [self.keys] if self.keys is not None else []
         self.box = w.VBox([self.header, self.strip,
-                           w.HBox([self.viewer, form, self.buttons])])
+                           w.HBox([self.viewer, form, self.buttons])] + extra)
         self._render()
 
     # --- utilidades ---
@@ -802,6 +847,13 @@ class AnnotationApp:
         self._reload()
         self._go(self.i + 1)
         self.msg.value = "<b style='color:#070'>Count saved · next photo</b>"
+
+    def on_save_here(self):
+        """Guarda y se queda en la foto con una letra NUEVA lista para el siguiente individuo."""
+        self.on_save()
+        msg = self.msg.value
+        self.letter.value = self.letter.options[-1][1]     # la ultima opcion es siempre la nueva
+        self.msg.value = msg + " · next: new individual"
 
     def on_save_next(self):
         self.on_save()

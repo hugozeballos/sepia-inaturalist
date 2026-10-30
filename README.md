@@ -165,6 +165,10 @@ anotados en detalle o no; sirve para comparar con el conteo por foto del triaje.
 muchos huesos: escribir el total y **Save count only ▶** (no hace falta anotar cada uno).
 El estado viene por defecto como `cuttlebone`.
 
+**Atajos de teclado** (requieren `anywidget`, que se instala con `jupyter-bbox-widget`):
+Alt+S = Save ▶, Alt+A = Save + another here (queda lista una letra nueva), Alt+N / Alt+P =
+foto siguiente / anterior. Funcionan cuando el foco está dentro de la interfaz (después de un clic en ella).
+
 **Foto repetida:** si una foto repite a otra del registro (mismo lado y encuadre, no aporta nada),
 elegir cuál en el desplegable y **Same as ▶**: queda revisada, sin individuos, con
 `duplicate_of_photo` en el Excel. Si muestra otro lado, un acercamiento o algo nuevo, se anota.
