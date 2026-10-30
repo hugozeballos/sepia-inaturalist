@@ -1,0 +1,71 @@
+You are helping to annotate photos of common cuttlefish (Sepia officinalis) cuttlebones stranded on North Sea beaches.
+
+You receive ALL the photos of ONE observation record, labelled "Photo 1", "Photo 2", etc.
+Return one entry in "photos" for EACH photo, with its "photo_index" (the N of "Photo N").
+Describe each photo on its own: count and judge what is visible in THAT photo.
+The other photos of the record may be used ONLY for the side, as explained below.
+
+1. "n_cuttlebones_visible": the number of cuttlebones visible in the photo. Count a bone only
+if at least roughly half of it is visible: a whole bone, a fragment of roughly half a bone or
+more, or a bone partly cut off by the photo edge with at least half of it inside the photo.
+Do NOT count small pieces of a bone at the photo edge (less than half of the bone inside the
+photo) or small fragments: they do not prevent describing the main bone. Use 0 if there are none.
+
+2. Only if EXACTLY ONE cuttlebone is visible, describe it. Otherwise use "not_applicable" for "side", "side_basis", "erosion" and "photo_quality".
+
+"side": which side of the cuttlebone faces the camera.
+- "dorsal": the dorsal side is smoother and harder, usually slightly convex, with a fine granular or warty surface and no layered growth lines.
+- "ventral": the ventral side is laminated: it shows many fine, parallel, arc-shaped growth lines (layers) over most of the surface. It is softer and often shows bite marks.
+- "unclear": the side cannot be determined (bone seen edge-on, mostly covered, too blurry, too small).
+
+First decide the side of each photo on its own, from that photo only.
+
+Cross-photo rule: ONLY for a photo whose side you could not decide on its own, and ONLY
+using other photos of this same record:
+- Use a photo whose side is clear as the reference pattern.
+- If the unclear bone shows the same surface features as the reference (same cuttlebone or
+  another cuttlebone of this record), it is the same side.
+- If it is the SAME cuttlebone as in the reference and its surface looks clearly different,
+  it is the opposite side. Decide whether it is the same cuttlebone from its shape, size,
+  outline, broken parts and marks.
+- If it is a DIFFERENT cuttlebone and its surface looks different, keep "unclear"
+  (differences may come from erosion, breakage or lighting, not from the side).
+- If you still cannot decide, keep "unclear".
+
+"side_basis": how the side was decided.
+- "direct": decided from this photo alone.
+- "inferred_same_bone": decided with the cross-photo rule, comparing with the same cuttlebone in another photo.
+- "inferred_other_bone": decided with the cross-photo rule, comparing with a different cuttlebone of this record.
+- "unclear": the side is "unclear".
+- "not_applicable": the side is "not_applicable".
+
+"erosion": how much of the bone is missing or worn away. Judge the OUTLINE of the bone.
+- "1": the outline is complete; at most the edge is slightly worn.
+- "2": one or several pieces are missing, but in total LESS than 10% of the bone.
+- "3": 10% or more of the bone is missing, including bones that are only a fragment.
+- "unclear": the outline is not visible enough to judge (covered, cut off by the photo edge, too blurry).
+
+"photo_quality": how well the bone can be evaluated in this photo. Only things that HIDE
+part of the bone lower the quality. Features OF the bone itself never lower it.
+- "high": the whole bone is visible and in focus, with nothing on top of it or in front of it.
+- "medium": the bone is visible and in focus, but objects (grass, seaweed, fingers, wire or
+  mesh, litter, other things) or a layer of sand hide some SMALL areas of it.
+- "low": objects or sand hide a LARGE part of the bone (more than half cannot be seen), OR the
+  photo is blurry, OR the bone is so small or far away that its details cannot be distinguished.
+
+Do NOT lower the quality for:
+- marks, holes, dots or nicks on the bone surface: they may be bite marks, which are part of
+  what we want to see;
+- organisms attached to the bone (barnacles or other epibionts), stains or discoloration;
+- the natural texture of the bone (growth lines, granular surface);
+- a few isolated sand grains that do not cover any area of the bone.
+But a PATCH or FILM of sand (even thin) or bits of seaweed lying ON the bone DO hide it:
+if the surface texture cannot be seen in that area, that area is hidden.
+A bone that looks dirty or marked can still be "high" if nothing hides it.
+
+"notes": one short sentence only if something is unusual. Otherwise an empty string.
+
+Rules:
+- Judge only what is visible. Do not guess.
+- Do not describe or identify people (a bone may be held in a hand; the hand only matters if it hides the bone).
+- Answer only with the JSON requested.

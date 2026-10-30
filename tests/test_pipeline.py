@@ -177,7 +177,7 @@ def test_triage_resume(api, cfg, monkeypatch):
     assert len(prov.calls) == 7 and set(prov.calls) == {2}   # todas las fotos del registro juntas
     t = sepia.load_triage(cfg, "fake", "m1")
     assert len(t) == 7 and t["n_cuttlebones"].eq(1).all()
-    raw = sepia.read_jsonl(sepia.triage.output_path(cfg, "fake", "m1"))
+    raw = sepia.read_jsonl(sepia.triage.output_path(cfg, "fake", "m1", "triage_v1"))
     assert raw["prompt_sha"].nunique() == 1 and raw["photo_ids"].iloc[0] == [11, 12]
 
 
@@ -202,7 +202,7 @@ def test_triage_stops_on_fatal(api, cfg, monkeypatch):
 
     sepia.run_triage(cfg, provider=Gone())
     assert Gone.calls == 1                       # se detuvo al primer error de configuracion
-    assert sepia.triage.done_ids(sepia.triage.output_path(cfg, "fake", "gone")) == set()
+    assert sepia.triage.done_ids(sepia.read_jsonl(sepia.triage.output_path(cfg, "fake", "gone", "triage_v1"))) == set()
 
 
 def test_triage_retries_overload(api, cfg, monkeypatch):
@@ -298,7 +298,7 @@ def test_redo(api, cfg, monkeypatch):
     sepia.run_triage(cfg, provider=prov, ids=[1, 2])              # salta
     sepia.run_triage(cfg, provider=prov, ids=[1], redo=True)      # rehace solo el 1
     assert len(prov.calls) == 3
-    raw = sepia.read_jsonl(sepia.triage.output_path(cfg, "fake", "rd"))
+    raw = sepia.read_jsonl(sepia.triage.output_path(cfg, "fake", "rd", "triage_v1"))
     assert len(raw) == 3 and len(sepia.load_triage(cfg, "fake", "rd")) == 2
 
 
@@ -625,3 +625,115 @@ def test_keyboard_shortcuts(api, cfg):
     assert app.row["photo_id"] == 11
     send("KeyZ")                                                 # tecla sin accion: no hace nada
     assert len(sepia.load_events(cfg)["individual"]) == 2
+
+
+# --------------------------------------------------------------------------
+# Un archivo por version de prompt (30 oct 2026)
+# --------------------------------------------------------------------------
+
+def test_one_file_per_prompt_version(api, cfg, monkeypatch):
+    """Cada version escribe su archivo; el archivo antiguo se sigue leyendo y se puede separar."""
+    from sepia import io as sio
+    sepia.download_observations(cfg)
+    sepia.build_tables(cfg)
+    sepia.download_photos(cfg)
+    sepia.make_resized(cfg, 512)
+    monkeypatch.setattr(sepia.triage.time, "sleep", lambda s: None)
+    prov = FakeProvider()
+    cfg.triage = {"provider": "fake", "model": "pf", "requests_per_minute": 100000,
+                  "prompt_version": "triage_v1"}
+    sepia.run_triage(cfg, provider=prov, ids=[1, 2])
+    cfg.triage["prompt_version"] = "triage_v2"
+    sepia.run_triage(cfg, provider=prov, ids=[1])
+    v1 = sepia.triage.output_path(cfg, "fake", "pf", "triage_v1")
+    v2 = sepia.triage.output_path(cfg, "fake", "pf", "triage_v2")
+    assert len(sepia.read_jsonl(v1)) == 2 and len(sepia.read_jsonl(v2)) == 1
+    assert set(sepia.read_jsonl(v2)["prompt_version"]) == {"triage_v2"}
+
+    # archivo antiguo (todas las versiones juntas): se lee sin separarlo...
+    legacy = sio.legacy_output_path(cfg, "triage", "fake", "pf")
+    old = sepia.read_jsonl(v1)
+    old["observation_id"] = old["observation_id"] + 2               # registros 3 y 4
+    v1.unlink()
+    sio.write_jsonl(old, legacy)
+    assert set(sepia.load_triage(cfg, "fake", "pf", "triage_v1")["observation_id"]) == {3, 4}
+    n_calls = len(prov.calls)
+    cfg.triage["prompt_version"] = "triage_v1"
+    sepia.run_triage(cfg, provider=prov, ids=[3, 4])               # ya hechos en el antiguo: salta
+    assert len(prov.calls) == n_calls
+    # ...y al separarlo no se pierde ni se duplica nada
+    assert sio.split_legacy_outputs(cfg, "triage", "fake", "pf") == {"triage_v1": 2}
+    assert not legacy.exists() and legacy.with_suffix(".jsonl.legacy").exists()
+    assert len(sepia.read_jsonl(v1)) == 2
+    assert set(sepia.load_triage(cfg, "fake", "pf", "triage_v1")["observation_id"]) == {3, 4}
+
+
+class FakeRecordTraits:
+    """Responde por registro: foto 1 ventral directa, foto 2 dorsal inferida del mismo hueso."""
+    name = "fake"
+    def __init__(self, bad_index=False):
+        self.calls, self.bad_index = [], bad_index
+    def classify(self, images, prompt, schema=None):
+        assert schema is sepia.photo_traits.RecordPhotoTraits
+        self.calls.append(len(images))
+        photos = []
+        for i in range(1, len(images) + 1):
+            photos.append({"photo_index": 1 if self.bad_index else i,
+                           "n_cuttlebones_visible": 1,
+                           "side": "ventral" if i == 1 else "dorsal",
+                           "side_basis": "direct" if i == 1 else "inferred_same_bone",
+                           "erosion": "1", "photo_quality": "high", "notes": ""})
+        res = {"photos": photos}
+        return res, json.dumps(res), {"input_tokens": 900, "output_tokens": 60}
+
+
+def test_photo_traits_by_record(api, cfg, monkeypatch):
+    """v5: una consulta por registro, una linea por foto, archivo propio, side_basis evaluado."""
+    from sepia import annotate as an, photo_traits as pt
+    _ready(cfg)
+    cfg.photo_traits = {"provider": "fake", "model": "t2", "requests_per_minute": 100000,
+                        "prompt_version": "photo_traits_v4"}
+    monkeypatch.setattr(pt.time, "sleep", lambda s: None)
+    prov = FakeRecordTraits()
+    pt.run_photo_traits(cfg, provider=prov, limit=2, prompt_version="photo_traits_v5")
+    pt.run_photo_traits(cfg, provider=prov, prompt_version="photo_traits_v5")     # reanuda
+    assert prov.calls == [2] * 7                                   # 7 registros, 2 fotos cada uno
+    out = pt.output_path(cfg, "fake", "t2", "photo_traits_v5")
+    raw = sepia.read_jsonl(out)
+    assert len(raw) == 14 and raw["call_id"].nunique() == 7 and set(raw["unit"]) == {"record"}
+    assert not pt.output_path(cfg, "fake", "t2", "photo_traits_v4").exists()
+    t = pt.load_photo_traits(cfg, "photo_traits_v5")
+    assert set(t.loc[t["position"] == 1, "side"]) == {"ventral"}
+    assert set(t.loc[t["position"] == 2, "side_basis"]) == {"inferred_same_bone"}
+    assert pt.load_photo_traits(cfg).empty                         # el YAML sigue en v4
+
+    # respuesta sin una entrada por foto -> error en todas las fotos del registro, se reintenta
+    bad = pt.output_path(cfg, "fake", "t2", "photo_traits_v6")
+    pt.run_photo_traits(cfg, provider=FakeRecordTraits(bad_index=True), ids=[1],
+                        prompt_version="photo_traits_v6")
+    b = sepia.read_jsonl(bad)
+    assert len(b) == 2 and b["error"].notna().all()
+    pt.run_photo_traits(cfg, provider=FakeRecordTraits(), ids=[1], prompt_version="photo_traits_v6")
+    assert len(pt.load_photo_traits(cfg, "photo_traits_v6")) == 2
+
+    # evaluacion: foto 11 ventral (acierto, direct), foto 12 ventral (falla, inferred_same_bone)
+    for pid in (11, 12):
+        an.save_individual(cfg, "HZ", 1, pid, "a", {"state": "cuttlebone", "side": "ventral", "erosion": 1})
+        an.save_photo_count(cfg, "HZ", 1, pid, 1)
+    c = pt.evaluate_photo_traits(cfg, "photo_traits_v5").set_index("photo_id")
+    assert c.loc[11, "side_basis"] == "direct" and c.loc[12, "side_model"] == "dorsal"
+
+
+def test_photo_traits_rules_side_basis():
+    from sepia import photo_traits as pt
+    r, rules = pt.apply_rules({"n_cuttlebones_visible": 1, "side": "unclear",
+                               "side_basis": "inferred_other_bone", "erosion": "1"})
+    assert r["side_basis"] == "unclear" and rules == ["side=unclear -> side_basis=unclear"]
+    r, _ = pt.apply_rules({"n_cuttlebones_visible": 2, "side": "dorsal",
+                           "side_basis": "direct", "erosion": "1"})
+    assert r["side_basis"] == "not_applicable"
+    for v in ("photo_traits_v5", "photo_traits_v6"):
+        text, _ = sepia.load_prompt(v)
+        assert "side_basis" in text and pt.PROMPT_UNIT[v] == "record"
+    assert "LENGTHWISE" in sepia.load_prompt("photo_traits_v6")[0]
+    assert "LENGTHWISE" not in sepia.load_prompt("photo_traits_v5")[0]

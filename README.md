@@ -17,14 +17,16 @@ El objetivo es llenar la tabla de Martin: una fila por individuo y por lado (dor
 
 ```
 configs/        parámetros de cada corrida (YAML, versionados) y listas de IDs
-scripts/        comandos que se ejecutan (download.py, triage.py, evaluate_triage.py, build_excel.py)
+scripts/        comandos que se ejecutan (download.py, triage.py, evaluate_triage.py, photo_traits.py,
+                build_excel.py, split_outputs.py)
 src/sepia/      funciones
   config.py     Config y lectura de YAML
   io.py         carpetas, JSON Lines, logs, manifest
   inat.py       descarga de registros y fotos, tablas, versiones reducidas
   export.py     Excel de entrega
   triage.py     triaje por registro con un modelo de visión (Gemini; Qwen después)
-  prompts/      prompts versionados (triage_v1.txt, triage_v2.txt)
+  prompts/      prompts versionados (triage_vN.txt, photo_traits_vN.txt); nunca se editan:
+                cada cambio es una version nueva
 tests/          pruebas sin internet (API simulada)
 docs/           documentación
 ```
@@ -41,7 +43,8 @@ photos/original/   fotos originales  (<observation_id>_<photo_id>.jpg)
 photos/512px/      para GPT
 photos/1024px/     para la interfaz de anotación
 annotations/       una .jsonl por anotador
-outputs/           respuestas de los modelos (triage_<proveedor>_<modelo>.jsonl)
+outputs/           respuestas de los modelos, un archivo por version de prompt
+                   (triage_<proveedor>_<modelo>_<version>.jsonl, photo_traits_..._<version>.jsonl)
 exports/           Excel generados
 logs/              registro de cada paso
 manifest.json      parámetros y fecha de descarga (para el párrafo de métodos)
@@ -102,6 +105,17 @@ del prompt y los tokens usados.
 Se saltan los registros ya clasificados **con la misma versión del prompt** (cambiar de versión
 vuelve a clasificar todo). `--redo` fuerza a rehacer: agrega líneas nuevas, no borra; vale la última.
 
+**Un archivo por versión de prompt** (desde el 30 oct 2026): cada versión escribe en
+`outputs/<paso>_<proveedor>_<modelo>_<version>.jsonl`. Así los resultados de cada prompt quedan
+separados y se pueden comparar. Los archivos anteriores (todas las versiones juntas) se siguen
+leyendo; para separarlos, una vez por corrida:
+
+```python
+!python scripts/split_outputs.py --config configs/pilot_a1.yaml
+```
+
+Copia cada línea al archivo de su versión y renombra el antiguo a `*.jsonl.legacy` (no borra nada).
+
 ```python
 import os
 from google.colab import userdata
@@ -142,6 +156,33 @@ resultados.
 
 La evaluación compara huesos visibles con *Individuals in photo* y, en fotos con un único
 individuo anotado, el lado y la erosión (tabla de confusión).
+
+**Por registro (v5 en adelante).** Hasta v4 el modelo ve una foto a la vez. Desde v5 recibe
+todas las fotos del registro juntas y responde por foto, para poder decidir el lado de una foto
+dudosa comparándola con otra del mismo registro. Se sigue guardando una línea por foto; las de una
+misma consulta comparten `call_id` (tokens y respuesta cruda son de la consulta completa: para
+sumar tokens, contar una vez por `call_id`). `--limit` cuenta registros en este modo.
+
+`side_basis` dice cómo se decidió el lado, y la evaluación muestra el acierto por cada vía:
+
+| valor | significado | prompt |
+|---|---|---|
+| `direct` | desde la foto sola | v5, v6 |
+| `lines_rule` | dorsal por las líneas finas a lo largo del hueso | v6 |
+| `inferred_same_bone` | comparando con el mismo hueso en otra foto (igual → mismo lado; distinto → opuesto) | v5, v6 |
+| `inferred_other_bone` | comparando con otro hueso del registro (solo si se ve igual) | v5, v6 |
+| `unclear` / `not_applicable` | sin lado | v5, v6 |
+
+- `photo_traits_v5`: definiciones de v4 + regla entre fotos.
+- `photo_traits_v6`: v5 + regla de las líneas (líneas a lo largo → dorsal; su ausencia no dice nada).
+
+Para probar otra versión sin editar el YAML:
+
+```python
+!python scripts/photo_traits.py --config configs/pilot_a1.yaml --prompt-version photo_traits_v5 --limit 5
+!python scripts/photo_traits.py --config configs/pilot_a1.yaml --prompt-version photo_traits_v5
+!python scripts/photo_traits.py --config configs/pilot_a1.yaml --prompt-version photo_traits_v5 --evaluate
+```
 
 ## Anotación manual
 

@@ -27,6 +27,9 @@ photo_traits:
   temperature: 0
   prompt_version: photo_traits_v4   # conteo: trozos en el borde (<1/2) no cuentan; capa de arena SI tapa
                                     # (v3: solo lo que tapa baja la calidad; v2: + calidad; v1: lado y erosion)
+                                    # En prueba (--prompt-version, una consulta POR REGISTRO):
+                                    #   v5: + regla entre fotos para el lado dudoso, side_basis
+                                    #   v6: v5 + lineas a lo largo -> dorsal
   image_size: 1024                  # mas detalle que el triaje: textura y bordes
   requests_per_minute: 8
   thinking_level: low

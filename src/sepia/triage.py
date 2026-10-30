@@ -8,8 +8,9 @@ y que muestra cada foto.
 
 Reproducibilidad:
 - Proveedor, modelo, temperatura y version del prompt quedan en configs/*.yaml.
-- Cada respuesta se guarda completa (JSON) en outputs/triage_<proveedor>_<modelo>.jsonl,
-  con el hash del prompt, los tokens usados y la fecha.
+- Cada respuesta se guarda completa (JSON) en
+  outputs/triage_<proveedor>_<modelo>_<version_prompt>.jsonl (un archivo por version
+  de prompt), con el hash del prompt, los tokens usados y la fecha.
 - Reanudable: los registros ya clasificados (sin error) se saltan.
 - El proveedor es intercambiable (gemini ahora; qwen despues).
 
@@ -29,7 +30,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from .config import Config
-from .io import paths, read_jsonl, append_jsonl
+from .io import paths, read_jsonl, append_jsonl, model_output_path, read_model_outputs
 
 # --------------------------------------------------------------------------
 # Esquema de la respuesta (el modelo debe devolver exactamente esto)
@@ -177,16 +178,14 @@ def make_provider(provider: str, model: str, temperature: float = 0.0, **opts):
 # Corrida del triaje
 # --------------------------------------------------------------------------
 
-def output_path(cfg: Config, provider: str, model: str) -> Path:
-    p = paths(cfg)
-    out = p["base"] / "outputs"
-    out.mkdir(parents=True, exist_ok=True)
-    return out / f"triage_{provider}_{model.replace('/', '-')}.jsonl"
+def output_path(cfg: Config, provider: str, model: str, prompt_version: str) -> Path:
+    """Un archivo por version de prompt: outputs/triage_<proveedor>_<modelo>_<version>.jsonl"""
+    return model_output_path(cfg, "triage", provider, model, prompt_version)
 
 
-def done_ids(path: Path, prompt_sha: str | None = None) -> set[int]:
-    """IDs ya clasificados sin error (para reanudar), con la MISMA version del prompt."""
-    df = read_jsonl(path)
+def done_ids(df, prompt_sha: str | None = None) -> set[int]:
+    """IDs ya clasificados sin error (para reanudar), con el MISMO texto de prompt (hash).
+    df: lineas guardadas de esta version (read_model_outputs)."""
     if df.empty:
         return set()
     ok = df[df["error"].isna()] if "error" in df else df
@@ -199,7 +198,7 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None,
                ids: list[int] | None = None, redo: bool = False) -> dict:
     """
     Clasifica cada registro con todas sus fotos (version de cfg.triage['image_size'] px).
-    Guarda una linea por registro en outputs/triage_<proveedor>_<modelo>.jsonl.
+    Guarda una linea por registro en outputs/triage_<proveedor>_<modelo>_<version>.jsonl.
     """
     tc = {"provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.0,
           "prompt_version": "triage_v1", "image_size": 512, "requests_per_minute": 8,
@@ -210,14 +209,15 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None,
                                          timeout_s=tc.get("timeout_s", 120))
     p = paths(cfg)
     img_dir = p["base"] / "photos" / f"{tc['image_size']}px"
-    out = output_path(cfg, tc["provider"], tc["model"])
+    out = output_path(cfg, tc["provider"], tc["model"], tc["prompt_version"])
+    saved = read_model_outputs(cfg, "triage", tc["provider"], tc["model"], tc["prompt_version"])
 
     obs = read_jsonl(p["tables"] / "observations.jsonl")
     pho = read_jsonl(p["tables"] / "photos.jsonl").sort_values(["observation_id", "position"])
     # Por defecto se saltan los ya clasificados con ESTA version del prompt.
     # redo=True los vuelve a clasificar: se agregan lineas nuevas (no se borra nada)
     # y al leer vale la ultima.
-    skip = set() if redo else done_ids(out, prompt_sha)
+    skip = set() if redo else done_ids(saved, prompt_sha)
     todo = [int(i) for i in obs["observation_id"] if int(i) not in skip]
     if ids is not None:                       # solo una lista de registros (casos de prueba)
         wanted = {int(i) for i in ids}
@@ -294,14 +294,12 @@ def load_triage(cfg: Config, provider: str, model: str, prompt_version: str | No
     la de cfg.triage, si existe.
     """
     import pandas as pd
-    if prompt_version is None and cfg.triage:
-        prompt_version = cfg.triage.get("prompt_version")
-    df = read_jsonl(output_path(cfg, provider, model))
+    if prompt_version is None:
+        prompt_version = (cfg.triage or {}).get("prompt_version", "triage_v1")
+    df = read_model_outputs(cfg, "triage", provider, model, prompt_version)
     if df.empty:
         return df
     df = df[df["error"].isna()]
-    if prompt_version and "prompt_version" in df:
-        df = df[df["prompt_version"] == prompt_version]
     if df.empty:
         return df
     df = df.sort_values("saved_at").drop_duplicates("observation_id", keep="last")
