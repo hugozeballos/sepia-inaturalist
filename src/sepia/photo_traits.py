@@ -86,16 +86,80 @@ class RecordPhotoTraitsV9(BaseModel):
     photos: list[PhotoTraitsInRecordV9]
 
 
+# --- v10-v11: el modelo marca rasgos en una lista cerrada (side_signs) -------------------
+# Rasgos de la literatura (v10) y de la guia de Martin (v11, se agregan). El modelo decide
+# 'side' y ademas el codigo calcula 'side_rule' con una tabla fija (side_from_signs), para
+# poder medir las dos cosas con una sola corrida.
+SignV10 = Literal["inner_cone_rim", "striated_zone", "granular_shield", "median_groove",
+                  "chitinous_posterior_cap", "transverse_lines", "lengthwise_lines",
+                  "white_chalky_or_porous"]
+SignV11 = Literal["inner_cone_rim", "striated_zone", "granular_shield", "median_groove",
+                  "chitinous_posterior_cap", "transverse_lines", "lengthwise_lines",
+                  "white_chalky_or_porous", "laminated_surface", "bite_marks",
+                  "smooth_hard_uniform_face"]
+SideBasisV10 = Literal["direct", "inferred_same_bone", "unclear", "not_applicable"]
+
+# Tabla fija rasgo -> lado. 'strong' decide; 'weak' solo cuenta como contradiccion.
+VENTRAL_STRONG = {"inner_cone_rim", "striated_zone", "laminated_surface"}
+DORSAL_STRONG = {"granular_shield"}
+VENTRAL_WEAK = {"median_groove", "bite_marks"}
+DORSAL_WEAK = {"chitinous_posterior_cap"}
+DORSAL_IF_SHARP = {"smooth_hard_uniform_face"}   # dorsal fuerte solo con calidad 'high'
+NEUTRAL = {"transverse_lines", "lengthwise_lines", "white_chalky_or_porous"}
+
+
+def side_from_signs(signs, photo_quality=None) -> str:
+    """
+    Lado decidido por regla fija a partir de los rasgos (solo de ESTA foto, sin otras fotos):
+    - ventral: algun rasgo ventral fuerte y ningun rasgo dorsal (fuerte ni debil);
+    - dorsal: algun rasgo dorsal fuerte y ningun rasgo ventral (fuerte ni debil);
+      'smooth_hard_uniform_face' cuenta como dorsal fuerte solo si la calidad es 'high';
+    - si no: unclear (contradiccion, solo rasgos debiles o ninguno).
+    """
+    s = set(signs or [])
+    dorsal_strong = s & DORSAL_STRONG
+    if photo_quality == "high":
+        dorsal_strong |= s & DORSAL_IF_SHARP
+    dorsal_any = s & (DORSAL_STRONG | DORSAL_WEAK | DORSAL_IF_SHARP)
+    ventral_strong = s & VENTRAL_STRONG
+    ventral_any = s & (VENTRAL_STRONG | VENTRAL_WEAK)
+    if ventral_strong and not dorsal_any:
+        return "ventral"
+    if dorsal_strong and not ventral_any:
+        return "dorsal"
+    return "unclear"
+
+
+class PhotoTraitsInRecordV10(PhotoTraitsInRecordV7):
+    side_basis: SideBasisV10
+    side_signs: list[SignV10]
+
+
+class RecordPhotoTraitsV10(BaseModel):
+    photos: list[PhotoTraitsInRecordV10]
+
+
+class PhotoTraitsInRecordV11(PhotoTraitsInRecordV10):
+    side_signs: list[SignV11]
+
+
+class RecordPhotoTraitsV11(BaseModel):
+    photos: list[PhotoTraitsInRecordV11]
+
+
 # Esquema de respuesta por version (las que no estan usan el de su unidad).
 SCHEMA_BY_VERSION = {"photo_traits_v7": RecordPhotoTraitsV7,
                      "photo_traits_v8": RecordPhotoTraitsV7,
-                     "photo_traits_v9": RecordPhotoTraitsV9}
+                     "photo_traits_v9": RecordPhotoTraitsV9,
+                     "photo_traits_v10": RecordPhotoTraitsV10,
+                     "photo_traits_v11": RecordPhotoTraitsV11}
 
 
 # Unidad de consulta de cada version de prompt (la que no esta, es "photo").
 PROMPT_UNIT = {"photo_traits_v5": "record", "photo_traits_v6": "record",
                "photo_traits_v7": "record", "photo_traits_v8": "record",
-               "photo_traits_v9": "record"}
+               "photo_traits_v9": "record", "photo_traits_v10": "record",
+               "photo_traits_v11": "record"}
 
 
 def apply_rules(result: dict) -> tuple[dict, list[str]]:
@@ -103,7 +167,8 @@ def apply_rules(result: dict) -> tuple[dict, list[str]]:
     Reglas fijas por foto:
     - lado, erosion y calidad solo con exactamente 1 hueso visible;
     - side_basis (si existe) coherente con el lado: lado 'unclear' -> base 'unclear';
-      lado 'not_applicable' -> base 'not_applicable'.
+      lado 'not_applicable' -> base 'not_applicable';
+    - con side_signs (v10-): side_rule = lado por la tabla fija (side_from_signs).
     """
     r, applied = dict(result), []
     if r.get("n_cuttlebones_visible") != 1:
@@ -113,11 +178,17 @@ def apply_rules(result: dict) -> tuple[dict, list[str]]:
             if r.get(k) != "not_applicable":
                 r[k] = "not_applicable"
                 applied.append(f"n_visible!=1 -> {k}=not_applicable")
+        if r.get("side_signs"):
+            r["side_signs"] = []
+            applied.append("n_visible!=1 -> side_signs=[]")
     if "side_basis" in r:
         for side in ("unclear", "not_applicable"):
             if r.get("side") == side and r.get("side_basis") != side:
                 r["side_basis"] = side
                 applied.append(f"side={side} -> side_basis={side}")
+    if "side_signs" in r:
+        r["side_rule"] = ("not_applicable" if r.get("n_cuttlebones_visible") != 1
+                          else side_from_signs(r["side_signs"], r.get("photo_quality")))
     return r, applied
 
 
@@ -328,7 +399,13 @@ def evaluate_photo_traits(cfg: Config, prompt_version: str | None = None,
     if len(cnt):
         say(f"Huesos visibles por foto: {m['count_agreement']:.0%} iguales ({len(cnt)} fotos anotadas)")
     compared = set(cnt["photo_id"].astype(int))
-    for var in ("side", "erosion", "photo_quality"):
+    # v10-: lado por la tabla fija de rasgos, comparado con el mismo lado humano
+    if "side_rule" in t:
+        t = t.rename(columns={"side_rule": "side_rule_model"})
+        t["side_rule_human"] = t["side_human"]
+    for var in ("side", "side_rule", "erosion", "photo_quality"):
+        if f"{var}_model" not in t:
+            continue
         h = t[f"{var}_human"]
         mv = t[f"{var}_model"].astype(str)
         sub = t[h.notna() & (mv != "not_applicable")].copy()
@@ -347,12 +424,36 @@ def evaluate_photo_traits(cfg: Config, prompt_version: str | None = None,
         m[f"{var}_confusion"] = {r: {c: int(ct.loc[r, c]) for c in ct.columns} for r in ct.index}
         say(f"{var}: {m[f'{var}_agreement']:.0%} de acuerdo ({len(sub)} fotos con 1 hueso)")
         say(ct)
-        if var == "side":
+        if var in ("side", "side_rule"):
             # el modelo dijo 'unclear' pero la persona si decidio: no es error, es abstencion
-            m["side_unclear_model"] = int((sub["m"] == "unclear").sum())
+            m[f"{var}_unclear_model"] = int((sub["m"] == "unclear").sum())
             decided = sub[sub["m"] != "unclear"]
-            m["side_agreement_when_decided"] = (float(decided["ok"].mean())
-                                                if len(decided) else None)
+            m[f"{var}_agreement_when_decided"] = (float(decided["ok"].mean())
+                                                  if len(decided) else None)
+            # acierto segun la erosion anotada (para decidir si con erosion 3 conviene 'unclear')
+            ero = sub["erosion_human"].map(
+                lambda v: str(int(v)) if isinstance(v, (int, float)) and v == v else "none")
+            dec = sub["m"] != "unclear"
+            m[f"{var}_by_erosion"] = {
+                e: {"n": int((ero == e).sum()),
+                    "unclear": int(((ero == e) & ~dec).sum()),
+                    "agreement_when_decided": (float(sub.loc[(ero == e) & dec, "ok"].mean())
+                                               if ((ero == e) & dec).any() else None)}
+                for e in sorted(ero.unique())}
+            say(f"{var} segun erosion anotada: {m[f'{var}_by_erosion']}")
+        if var == "side" and "side_signs" in sub:
+            # fiabilidad de cada rasgo: en cuantas fotos aparece y que lado anoto la persona
+            rel = {}
+            for _, row in sub.iterrows():
+                for sg in (row["side_signs"] if isinstance(row["side_signs"], list) else []):
+                    d = rel.setdefault(sg, {"n": 0, "human_dorsal": 0, "human_ventral": 0})
+                    d["n"] += 1
+                    if row["h"] in ("dorsal", "ventral"):
+                        d[f"human_{row['h']}"] += 1
+            m["side_sign_reliability"] = rel
+            say("rasgos y lado anotado:")
+            say(pd.DataFrame(rel).T)
+        if var == "side":
             if "side_basis" in sub:
                 # acierto por via de decision (v5-): direct, lines_rule, inferred_*
                 by = sub.groupby("side_basis")["ok"].agg(["mean", "size"])
@@ -397,6 +498,8 @@ def compare_photo_traits(cfg: Config, versions: list[str], save: bool = True) ->
                      **{k: m.get(k) for k in ("count_agreement", "count_n",
                                               "side_agreement", "side_agreement_when_decided",
                                               "side_unclear_model", "side_n",
+                                              "side_rule_agreement_when_decided",
+                                              "side_rule_unclear_model",
                                               "erosion_agreement", "erosion_n",
                                               "photo_quality_agreement", "photo_quality_n")}})
     out = pd.DataFrame(rows).set_index("prompt_version")

@@ -23,7 +23,7 @@ from .io import paths, read_jsonl
 from .photo_traits import load_photo_traits
 
 # Filas de la tabla (en este orden)
-FIELDS = ["n_cuttlebones_visible", "side", "side_basis", "side_evidence",
+FIELDS = ["n_cuttlebones_visible", "side", "side_rule", "side_basis", "side_signs", "side_evidence",
           "erosion", "photo_quality", "notes"]
 FILTERS = ["all", "annotated", "versions_differ", "model_wrong"]
 
@@ -57,11 +57,15 @@ def review_table(cfg: Config, versions: list[str]) -> pd.DataFrame:
         keep = [c for c in ("side", "erosion", "photo_quality", "notes") if c in one]
         one = one[["photo_id"] + keep].astype({"photo_id": "int64"})
         t = t.merge(one.rename(columns={c: f"{c}__human" for c in keep}), on="photo_id", how="left")
+    if "side__human" in t:
+        t["side_rule__human"] = t["side__human"]   # el lado por regla se compara con el mismo lado
     return t.reset_index(drop=True)
 
 
 def _norm(v) -> str:
     """Valor como texto para mostrar y comparar (erosion humana viene como numero)."""
+    if isinstance(v, (list, tuple)):              # side_signs (v10-)
+        return ", ".join(str(x) for x in v)
     if v is None or (isinstance(v, float) and v != v):
         return ""
     if isinstance(v, float) and v.is_integer():
@@ -161,7 +165,8 @@ class ReviewApp:
             cells = ""
             for c, v in zip(cols, vals):
                 style = "padding:4px 8px"
-                if field in ("side", "erosion", "photo_quality", "n_cuttlebones_visible") and c != "human":
+                if field in ("side", "side_rule", "erosion", "photo_quality",
+                             "n_cuttlebones_visible") and c != "human":
                     if human and v and v != "not_applicable" and v != human:
                         style += ";background:#f8d7da;color:#000"     # distinto de la persona
                     elif len(model_vals) > 1:

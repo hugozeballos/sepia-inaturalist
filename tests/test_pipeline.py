@@ -674,10 +674,11 @@ class FakeRecordTraits:
     def __init__(self, bad_index=False):
         self.calls, self.bad_index = [], bad_index
     def classify(self, images, prompt, schema=None):
-        assert schema in (sepia.photo_traits.RecordPhotoTraits,
-                          sepia.photo_traits.RecordPhotoTraitsV7,
-                          sepia.photo_traits.RecordPhotoTraitsV9)
-        v7 = schema is not sepia.photo_traits.RecordPhotoTraits
+        pt_ = sepia.photo_traits
+        assert schema in (pt_.RecordPhotoTraits, pt_.RecordPhotoTraitsV7, pt_.RecordPhotoTraitsV9,
+                          pt_.RecordPhotoTraitsV10, pt_.RecordPhotoTraitsV11)
+        v7 = schema is not pt_.RecordPhotoTraits
+        v10 = schema in (pt_.RecordPhotoTraitsV10, pt_.RecordPhotoTraitsV11)
         self.calls.append(len(images))
         photos = []
         for i in range(1, len(images) + 1):
@@ -686,7 +687,9 @@ class FakeRecordTraits:
                            "side": "ventral" if i == 1 else "dorsal",
                            "side_basis": "direct" if i == 1 else "inferred_same_bone",
                            "erosion": "1", "photo_quality": "high", "notes": "",
-                           **({"side_evidence": "porous surface"} if v7 else {})})
+                           **({"side_evidence": "porous surface"} if v7 else {}),
+                           **({"side_signs": ["inner_cone_rim"] if i == 1 else ["granular_shield"]}
+                              if v10 else {})})
         res = {"photos": photos}
         return res, json.dumps(res), {"input_tokens": 900, "output_tokens": 60}
 
@@ -785,3 +788,50 @@ def test_metrics_saved_and_compare(api, cfg, monkeypatch):
         "photo_index": 1, "n_cuttlebones_visible": 1, "side": "ventral", "side_basis": "bands_rule",
         "side_evidence": "curved transverse bands", "erosion": "1", "photo_quality": "high",
         "notes": ""}]})
+
+
+def test_side_from_signs_and_v10(api, cfg, monkeypatch):
+    """v10-v11: tabla fija rasgos -> lado, side_rule guardado y evaluado."""
+    from sepia import annotate as an, photo_traits as pt
+    f = pt.side_from_signs
+    assert f(["inner_cone_rim"]) == "ventral"
+    assert f(["striated_zone", "white_chalky_or_porous"]) == "ventral"
+    assert f(["granular_shield"]) == "dorsal"
+    assert f(["granular_shield", "median_groove"]) == "unclear"        # contradiccion debil
+    assert f(["inner_cone_rim", "chitinous_posterior_cap"]) == "unclear"
+    assert f(["white_chalky_or_porous", "transverse_lines"]) == "unclear"  # solo neutros
+    assert f(["median_groove"]) == "unclear"                           # solo debiles
+    assert f([]) == "unclear"
+    assert f(["smooth_hard_uniform_face"], "high") == "dorsal"
+    assert f(["smooth_hard_uniform_face"], "medium") == "unclear"
+    assert f(["smooth_hard_uniform_face", "bite_marks"], "high") == "unclear"
+    r, _ = pt.apply_rules({"n_cuttlebones_visible": 2, "side": "dorsal", "side_basis": "direct",
+                           "side_signs": ["granular_shield"], "erosion": "1"})
+    assert r["side_signs"] == [] and r["side_rule"] == "not_applicable"
+    for v in ("photo_traits_v10", "photo_traits_v11"):
+        text = sepia.load_prompt(v)[0]
+        assert "inner_cone_rim" in text and "side_signs" in text and pt.PROMPT_UNIT[v] == "record"
+        assert "lines_rule" not in text
+    assert "laminated_surface" in sepia.load_prompt("photo_traits_v11")[0]
+    assert "laminated_surface" not in sepia.load_prompt("photo_traits_v10")[0]
+
+    _ready(cfg)
+    cfg.photo_traits = {"provider": "fake", "model": "t4", "requests_per_minute": 100000,
+                        "prompt_version": "photo_traits_v10"}
+    monkeypatch.setattr(pt.time, "sleep", lambda s: None)
+    pt.run_photo_traits(cfg, provider=FakeRecordTraits(), ids=[1, 2])
+    t = pt.load_photo_traits(cfg)
+    assert set(t.loc[t["position"] == 1, "side_rule"]) == {"ventral"}
+    assert set(t.loc[t["position"] == 2, "side_rule"]) == {"dorsal"}
+    for pid, side, ero in ((11, "ventral", 1), (12, "ventral", 3), (21, "ventral", 1)):
+        an.save_individual(cfg, "HZ", pid // 10, pid, "a",
+                           {"state": "cuttlebone", "side": side, "erosion": ero})
+        an.save_photo_count(cfg, "HZ", pid // 10, pid, 1)
+    e = pt.evaluate_photo_traits(cfg)
+    m = e.attrs["metrics"]
+    assert m["side_rule_n"] == 3 and m["side_rule_agreement"] == 2 / 3
+    assert m["side_rule_by_erosion"]["3"]["agreement_when_decided"] == 0.0
+    assert m["side_sign_reliability"]["inner_cone_rim"] == {"n": 2, "human_dorsal": 0, "human_ventral": 2}
+    from sepia import review
+    rt = review.review_table(cfg, ["photo_traits_v10"])
+    assert "side_rule__photo_traits_v10" in rt and review._norm(["a", "b"]) == "a, b"

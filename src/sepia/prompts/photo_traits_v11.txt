@@ -1,0 +1,117 @@
+You are helping to annotate photos of common cuttlefish (Sepia officinalis) cuttlebones stranded on North Sea beaches.
+
+You receive ALL the photos of ONE observation record, labelled "Photo 1", "Photo 2", etc.
+Return one entry in "photos" for EACH photo, with its "photo_index" (the N of "Photo N").
+Describe each photo on its own: count and judge what is visible in THAT photo.
+The other photos of the record may be used ONLY for the side, as explained below.
+
+1. "n_cuttlebones_visible": the number of cuttlebones visible in the photo. Count a bone only
+if at least roughly half of it is visible: a whole bone, a fragment of roughly half a bone or
+more, or a bone partly cut off by the photo edge with at least half of it inside the photo.
+Do NOT count small pieces of a bone at the photo edge (less than half of the bone inside the
+photo) or small fragments: they do not prevent describing the main bone. Use 0 if there are none.
+
+2. Only if EXACTLY ONE cuttlebone is visible, describe it. Otherwise use "not_applicable" for "side", "side_basis", "side_evidence", "erosion" and
+"photo_quality", and an empty list for "side_signs".
+
+"side_signs": the list of the signs below that you CLEARLY see in THIS photo. Report every
+one you see, including the weak ones. Report only what you see; an empty list is fine.
+Orientation: the POSTERIOR end is the end with the small spine (or the wider, more rounded
+end with a horn-like cap); the ANTERIOR end is the opposite one.
+
+Strong signs of the VENTRAL side (the side that faced the animal's belly):
+- "inner_cone_rim": a raised, thickened rim shaped like a U or V that follows the outline of
+  the posterior end, a little INSIDE the edge of the bone.
+- "striated_zone": many fine, closely spaced lines that run ACROSS the bone, from one side
+  edge to the other, covering the posterior part of the bone up to about its middle. They
+  curve as arches (inverted U or V) pointing toward the posterior end. The anterior part, in
+  front of them, is smooth. They are the edges of the thin internal plates of the bone.
+
+Strong sign of the DORSAL side (the side that faced the animal's back):
+- "granular_shield": the face is a hard, white calcareous shield with a rough, granular or
+  finely warty texture (many tiny bumps), and WITHOUT the dense arched striae described above.
+
+Weak signs (report them, but they never decide the side on their own):
+- "median_groove" (ventral, weak): a shallow groove running lengthwise along the middle of
+  the striated zone.
+- "chitinous_posterior_cap" (dorsal, weak): the thin, translucent, yellowish or brownish,
+  horn-like border of the bone widens at the posterior end into a cap or plate, with the
+  spine embedded in it.
+
+Signs that do NOT tell the side (report them, never use them to decide):
+- "transverse_lines": lines or bands running across the bone that are NOT clearly the dense
+  arched striae of the striated zone. Growth lines across the bone exist on BOTH sides.
+- "lengthwise_lines": lines, ridges or streaks running along the bone. Both sides can show them
+  (the ventral side has a median groove; the dorsal side may show faint ridges).
+- "white_chalky_or_porous": a white, chalky, porous or soft-looking surface. Both sides can
+  look like this, especially when eroded.
+
+Additional signs from the project guidelines (Martin Thiel): "Dorsal side: is smoother and
+harder." "Ventral side: is laminated and often shows bite marks."
+- "laminated_surface" (ventral, strong): the face is clearly built of thin stacked layers:
+  the edges of the layers show as fine steps or lines, or layers are peeling or broken off.
+- "bite_marks" (ventral, weak): small triangular notches or nicks cut into the surface or
+  edge, as made by a beak.
+- "smooth_hard_uniform_face" (dorsal): the whole visible face looks smooth, hard and uniform,
+  with NO laminae, NO striated zone and NO inner cone rim anywhere. Use it only when the whole
+  face is clearly visible and in focus.
+
+"side": decide it ONLY from the signs in "side_signs":
+- "ventral": at least one strong ventral sign ("inner_cone_rim", "striated_zone",
+  "laminated_surface") and no dorsal sign.
+- "dorsal": "granular_shield", or "smooth_hard_uniform_face" in a sharp photo where the whole
+  face is visible, and no ventral sign at all (strong or weak).
+- "unclear": signs of both sides, only weak signs, or no signs. Also when the bone is seen
+  edge-on, mostly covered, too blurry or too small.
+A wrong side is worse than "unclear": when in doubt, use "unclear".
+
+Cross-photo rule: ONLY for a photo where you saw NO strong sign (its side would be "unclear"),
+and ONLY using other photos of this same record. NEVER use it to change a photo where you saw
+a strong sign.
+- Use a photo whose side was decided from strong signs as the reference.
+- If the unclear photo shows the SAME cuttlebone as the reference (same shape, size, outline,
+  broken parts and marks): if its surface clearly looks like the reference surface, it is the
+  same side; if it clearly looks different, it is the opposite side.
+- If it is a DIFFERENT cuttlebone, or you are not sure it is the same one, keep "unclear".
+
+"side_basis": how the side was decided.
+- "direct": decided from the signs of this photo alone.
+- "inferred_same_bone": decided with the cross-photo rule (same cuttlebone in another photo).
+- "unclear": the side is "unclear".
+- "not_applicable": the side is "not_applicable".
+
+"side_evidence": a few words describing what you saw that supports the signs listed (for example
+"U-shaped rim inside the posterior edge", "arched striae over the back half", "rough granular
+surface"), or why the side is unclear (for example "only chalky surface", "edge-on"). Use
+"not_applicable" if the side is "not_applicable". Describe only what you actually see.
+
+"erosion": how much of the bone is missing or worn away. Judge the OUTLINE of the bone.
+- "1": the outline is complete; at most the edge is slightly worn.
+- "2": one or several pieces are missing, but in total LESS than 10% of the bone.
+- "3": 10% or more of the bone is missing, including bones that are only a fragment.
+- "unclear": the outline is not visible enough to judge (covered, cut off by the photo edge, too blurry).
+
+"photo_quality": how well the bone can be evaluated in this photo. Only things that HIDE
+part of the bone lower the quality. Features OF the bone itself never lower it.
+- "high": the whole bone is visible and in focus, with nothing on top of it or in front of it.
+- "medium": the bone is visible and in focus, but objects (grass, seaweed, fingers, wire or
+  mesh, litter, other things) or a layer of sand hide some SMALL areas of it.
+- "low": objects or sand hide a LARGE part of the bone (more than half cannot be seen), OR the
+  photo is blurry, OR the bone is so small or far away that its details cannot be distinguished.
+
+Do NOT lower the quality for:
+- marks, holes, dots or nicks on the bone surface: they may be bite marks, which are part of
+  what we want to see;
+- organisms attached to the bone (barnacles or other epibionts), stains or discoloration;
+- the natural texture of the bone (growth lines, granular surface);
+- a few isolated sand grains that do not cover any area of the bone.
+But a PATCH or FILM of sand (even thin) or bits of seaweed lying ON the bone DO hide it:
+if the surface texture cannot be seen in that area, that area is hidden.
+A bone that looks dirty or marked can still be "high" if nothing hides it.
+
+"notes": one short sentence only if something is unusual. Otherwise an empty string.
+
+Rules:
+- Judge only what is visible. Do not guess.
+- Do not describe or identify people (a bone may be held in a hand; the hand only matters if it hides the bone).
+- Answer only with the JSON requested.

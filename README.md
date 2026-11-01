@@ -189,6 +189,19 @@ sumar tokens, contar una vez por `call_id`). `--limit` cuenta registros en este 
   que cruzan el hueso de borde a borde, más o menos paralelas al borde en U/V. Lo que distingue es la
   dirección: rectas a lo largo = dorsal; curvas a lo ancho = ventral. Nueva vía `bands_rule` en
   `side_basis`. No adoptar hasta verificar la señal en las fotos y con Martin.
+- `photo_traits_v10`: lado según la literatura (FAO, Reid, VLIZ). El modelo marca en `side_signs`
+  (lista cerrada) los rasgos que ve: ventral fuerte `inner_cone_rim`, `striated_zone`; dorsal fuerte
+  `granular_shield`; débiles `median_groove` (V) y `chitinous_posterior_cap` (D); neutros
+  `transverse_lines`, `lengthwise_lines`, `white_chalky_or_porous` (existen en los dos lados).
+  Las líneas ya no deciden. La regla entre fotos solo se aplica a fotos sin rasgos fuertes.
+- `photo_traits_v11`: v10 + guía de Martin ("dorsal: smoother and harder"; "ventral: laminated,
+  often bite marks"): `laminated_surface` (V fuerte), `bite_marks` (V débil),
+  `smooth_hard_uniform_face` (D, solo con calidad `high`).
+- Desde v10, además del lado del modelo (`side`), el código calcula `side_rule` con una tabla fija
+  (`photo_traits.side_from_signs`, solo con los rasgos de la foto): lado fuerte sin ningún rasgo
+  del lado contrario; si no, `unclear`. La evaluación mide los dos, el acierto según la erosión
+  anotada (`*_by_erosion`) y en qué lado anotó la persona las fotos con cada rasgo
+  (`side_sign_reliability`).
 
 ### Visor de resultados
 
