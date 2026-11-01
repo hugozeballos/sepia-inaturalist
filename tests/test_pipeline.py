@@ -675,8 +675,9 @@ class FakeRecordTraits:
         self.calls, self.bad_index = [], bad_index
     def classify(self, images, prompt, schema=None):
         assert schema in (sepia.photo_traits.RecordPhotoTraits,
-                          sepia.photo_traits.RecordPhotoTraitsV7)
-        v7 = schema is sepia.photo_traits.RecordPhotoTraitsV7
+                          sepia.photo_traits.RecordPhotoTraitsV7,
+                          sepia.photo_traits.RecordPhotoTraitsV9)
+        v7 = schema is not sepia.photo_traits.RecordPhotoTraits
         self.calls.append(len(images))
         photos = []
         for i in range(1, len(images) + 1):
@@ -770,3 +771,9 @@ def test_metrics_saved_and_compare(api, cfg, monkeypatch):
     v8 = sepia.load_prompt("photo_traits_v8")[0]
     assert "ridges" in v8 and "relief" in v8 and "parallel lines" not in v8
     assert pt.SCHEMA_BY_VERSION["photo_traits_v8"] is pt.RecordPhotoTraitsV7
+    v9 = sepia.load_prompt("photo_traits_v9")[0]
+    assert "bands_rule" in v9 and "ACROSS" in v9
+    pt.RecordPhotoTraitsV9.model_validate({"photos": [{
+        "photo_index": 1, "n_cuttlebones_visible": 1, "side": "ventral", "side_basis": "bands_rule",
+        "side_evidence": "curved transverse bands", "erosion": "1", "photo_quality": "high",
+        "notes": ""}]})

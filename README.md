@@ -185,6 +185,10 @@ sumar tokens, contar una vez por `call_id`). `--limit` cuenta registros en este 
 - `photo_traits_v8`: v7 con el dorsal descrito como relieve: crestas bajas, rectas y paralelas
   (ondulaciones de la superficie) a lo largo del hueso, que se ven como franjas tenues de luz y
   sombra sobre todo con luz lateral; con luz frontal no se ven. No son líneas dibujadas (Hugo, 1 nov).
+- `photo_traits_v9` (**experimento**): v8 + señal ventral: bandas curvas (ondulaciones de crecimiento)
+  que cruzan el hueso de borde a borde, más o menos paralelas al borde en U/V. Lo que distingue es la
+  dirección: rectas a lo largo = dorsal; curvas a lo ancho = ventral. Nueva vía `bands_rule` en
+  `side_basis`. No adoptar hasta verificar la señal en las fotos y con Martin.
 
 ### Métricas guardadas
 

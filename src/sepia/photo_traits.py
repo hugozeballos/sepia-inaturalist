@@ -72,14 +72,30 @@ class RecordPhotoTraitsV7(BaseModel):
     photos: list[PhotoTraitsInRecordV7]
 
 
+SideBasisV9 = Literal["direct", "lines_rule", "bands_rule", "inferred_same_bone",
+                      "inferred_other_bone", "unclear", "not_applicable"]
+
+
+class PhotoTraitsInRecordV9(PhotoTraitsInRecordV7):
+    """Desde v9: + 'bands_rule' (ventral por las bandas curvas transversales). EXPERIMENTO:
+    la senal ventral esta por verificar (Hugo / Martin)."""
+    side_basis: SideBasisV9
+
+
+class RecordPhotoTraitsV9(BaseModel):
+    photos: list[PhotoTraitsInRecordV9]
+
+
 # Esquema de respuesta por version (las que no estan usan el de su unidad).
 SCHEMA_BY_VERSION = {"photo_traits_v7": RecordPhotoTraitsV7,
-                     "photo_traits_v8": RecordPhotoTraitsV7}
+                     "photo_traits_v8": RecordPhotoTraitsV7,
+                     "photo_traits_v9": RecordPhotoTraitsV9}
 
 
 # Unidad de consulta de cada version de prompt (la que no esta, es "photo").
 PROMPT_UNIT = {"photo_traits_v5": "record", "photo_traits_v6": "record",
-               "photo_traits_v7": "record", "photo_traits_v8": "record"}
+               "photo_traits_v7": "record", "photo_traits_v8": "record",
+               "photo_traits_v9": "record"}
 
 
 def apply_rules(result: dict) -> tuple[dict, list[str]]:
