@@ -771,6 +771,14 @@ def test_metrics_saved_and_compare(api, cfg, monkeypatch):
     v8 = sepia.load_prompt("photo_traits_v8")[0]
     assert "ridges" in v8 and "relief" in v8 and "parallel lines" not in v8
     assert pt.SCHEMA_BY_VERSION["photo_traits_v8"] is pt.RecordPhotoTraitsV7
+    # visor: tabla por foto con cada version y la persona
+    from sepia import review
+    rt = review.review_table(cfg, ["photo_traits_v6", "photo_traits_v7"])
+    assert len(rt) == 14 and "side_evidence__photo_traits_v7" in rt and "side__human" in rt
+    assert len(review.filter_rows(rt, ["photo_traits_v6"], "annotated")) == 3
+    wrong = review.filter_rows(rt, ["photo_traits_v6"], "model_wrong")
+    assert set(wrong["photo_id"]) == {12}               # foto 2: dorsal para el modelo, ventral anotada
+    assert len(review.filter_rows(rt, ["photo_traits_v6", "photo_traits_v7"], "versions_differ")) == 0
     v9 = sepia.load_prompt("photo_traits_v9")[0]
     assert "bands_rule" in v9 and "ACROSS" in v9
     pt.RecordPhotoTraitsV9.model_validate({"photos": [{

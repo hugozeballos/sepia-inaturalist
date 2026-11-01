@@ -190,6 +190,19 @@ sumar tokens, contar una vez por `call_id`). `--limit` cuenta registros en este 
   dirección: rectas a lo largo = dorsal; curvas a lo ancho = ventral. Nueva vía `bands_rule` en
   `side_basis`. No adoptar hasta verificar la señal en las fotos y con Martin.
 
+### Visor de resultados
+
+Foto + valores de cada versión lado a lado + anotación manual (rojo = distinto de la persona,
+amarillo = las versiones no coinciden). Solo lee archivos.
+
+```python
+from sepia.review import ReviewApp
+ReviewApp(cfg, ["photo_traits_v6", "photo_traits_v8", "photo_traits_v9"]).show()
+# filtros: only="annotated" (por defecto), "model_wrong", "versions_differ", "all"
+```
+
+Para no romper la anotación a ciegas, mirar solo fotos ya anotadas.
+
 ### Métricas guardadas
 
 Cada `--evaluate` y cada `--compare` (y `scripts/evaluate_triage.py`) **agrega** una línea a
