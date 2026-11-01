@@ -767,3 +767,6 @@ def test_metrics_saved_and_compare(api, cfg, monkeypatch):
     m = sepia.load_metrics(cfg, "photo_traits")
     assert len(m) == 3 and m.iloc[1]["eval_set_sha"] == m.iloc[2]["eval_set_sha"]
     assert "side_evidence" in sepia.load_prompt("photo_traits_v7")[0]
+    v8 = sepia.load_prompt("photo_traits_v8")[0]
+    assert "ridges" in v8 and "relief" in v8 and "parallel lines" not in v8
+    assert pt.SCHEMA_BY_VERSION["photo_traits_v8"] is pt.RecordPhotoTraitsV7

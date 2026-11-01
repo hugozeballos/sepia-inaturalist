@@ -182,6 +182,9 @@ sumar tokens, contar una vez por `call_id`). `--limit` cuenta registros en este 
 - `photo_traits_v7`: v6 + `side_evidence` (pocas palabras con el rasgo visible que decidió el lado,
   o por qué no se pudo). Mismas definiciones que v6; sirve para auditar el lado y para verificar
   la regla de las líneas sin mirar cada foto.
+- `photo_traits_v8`: v7 con el dorsal descrito como relieve: crestas bajas, rectas y paralelas
+  (ondulaciones de la superficie) a lo largo del hueso, que se ven como franjas tenues de luz y
+  sombra sobre todo con luz lateral; con luz frontal no se ven. No son líneas dibujadas (Hugo, 1 nov).
 
 ### Métricas guardadas
 

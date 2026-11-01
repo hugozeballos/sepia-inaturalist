@@ -73,12 +73,13 @@ class RecordPhotoTraitsV7(BaseModel):
 
 
 # Esquema de respuesta por version (las que no estan usan el de su unidad).
-SCHEMA_BY_VERSION = {"photo_traits_v7": RecordPhotoTraitsV7}
+SCHEMA_BY_VERSION = {"photo_traits_v7": RecordPhotoTraitsV7,
+                     "photo_traits_v8": RecordPhotoTraitsV7}
 
 
 # Unidad de consulta de cada version de prompt (la que no esta, es "photo").
 PROMPT_UNIT = {"photo_traits_v5": "record", "photo_traits_v6": "record",
-               "photo_traits_v7": "record"}
+               "photo_traits_v7": "record", "photo_traits_v8": "record"}
 
 
 def apply_rules(result: dict) -> tuple[dict, list[str]]:
