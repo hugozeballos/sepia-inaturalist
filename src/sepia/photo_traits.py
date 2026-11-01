@@ -30,7 +30,8 @@ import pandas as pd
 from pydantic import BaseModel
 
 from .config import Config
-from .io import paths, read_jsonl, append_jsonl, model_output_path, read_model_outputs
+from .io import (paths, read_jsonl, append_jsonl, model_output_path, read_model_outputs,
+                 save_metrics, ids_sha)
 from .triage import (load_prompt, make_provider, RateLimited, FatalProviderError)
 
 Side = Literal["dorsal", "ventral", "unclear", "not_applicable"]
@@ -61,8 +62,23 @@ class RecordPhotoTraits(BaseModel):
     photos: list[PhotoTraitsInRecord]
 
 
+class PhotoTraitsInRecordV7(PhotoTraitsInRecord):
+    """Desde v7: + side_evidence, el rasgo visible que decidio el lado (para auditar el lado
+    y verificar la regla de las lineas). Campo obligatorio para que el modelo siempre lo llene."""
+    side_evidence: str
+
+
+class RecordPhotoTraitsV7(BaseModel):
+    photos: list[PhotoTraitsInRecordV7]
+
+
+# Esquema de respuesta por version (las que no estan usan el de su unidad).
+SCHEMA_BY_VERSION = {"photo_traits_v7": RecordPhotoTraitsV7}
+
+
 # Unidad de consulta de cada version de prompt (la que no esta, es "photo").
-PROMPT_UNIT = {"photo_traits_v5": "record", "photo_traits_v6": "record"}
+PROMPT_UNIT = {"photo_traits_v5": "record", "photo_traits_v6": "record",
+               "photo_traits_v7": "record"}
 
 
 def apply_rules(result: dict) -> tuple[dict, list[str]]:
@@ -74,7 +90,8 @@ def apply_rules(result: dict) -> tuple[dict, list[str]]:
     """
     r, applied = dict(result), []
     if r.get("n_cuttlebones_visible") != 1:
-        keys = ("side", "erosion", "photo_quality") + (("side_basis",) if "side_basis" in r else ())
+        keys = ("side", "erosion", "photo_quality") + tuple(
+            k for k in ("side_basis", "side_evidence") if k in r)
         for k in keys:
             if r.get(k) != "not_applicable":
                 r[k] = "not_applicable"
@@ -177,7 +194,8 @@ def run_photo_traits(cfg: Config, provider=None, limit: int | None = None,
           + f"{len(units)} {'registros' if tc['unit'] == 'record' else 'fotos'} por hacer")
     print(f"salida: {out}")
 
-    schema = RecordPhotoTraits if tc["unit"] == "record" else PhotoTraits
+    schema = SCHEMA_BY_VERSION.get(
+        tc["prompt_version"], RecordPhotoTraits if tc["unit"] == "record" else PhotoTraits)
     pause = 60.0 / tc["requests_per_minute"]
     stats = {"calls": 0, "ok": 0, "error": 0, "input_tokens": 0, "output_tokens": 0}
     for n, g in enumerate(units, start=1):
@@ -245,23 +263,32 @@ def load_photo_traits(cfg: Config, prompt_version: str | None = None) -> pd.Data
     flat = pd.json_normalize(df["result"].tolist())
     for c in ("observation_id", "photo_id", "position"):
         flat.insert(0, c, df[c].values)
+    flat["prompt_sha"] = df["prompt_sha"].values
     return flat
 
 
-def evaluate_photo_traits(cfg: Config, prompt_version: str | None = None) -> pd.DataFrame:
+def evaluate_photo_traits(cfg: Config, prompt_version: str | None = None,
+                          photo_ids=None, save: bool = True, eval_set: str = "all",
+                          quiet: bool = False) -> pd.DataFrame:
     """
     Compara con la anotacion manual, foto por foto:
     - conteo: huesos visibles del modelo vs 'Individuals in photo' del anotador
-    - lado y erosion: solo fotos con un unico individuo anotado y 1 hueso para el modelo
-    Devuelve la tabla de comparacion e imprime los aciertos.
+    - lado, erosion y calidad: solo fotos con un unico individuo anotado y 1 hueso para el modelo
+    photo_ids: evaluar solo estas fotos (p. ej. las comunes a varias versiones).
+    save=True agrega las metricas a outputs/metrics/photo_traits_metrics.jsonl.
+    Devuelve la tabla foto a foto; las metricas quedan en tabla.attrs["metrics"].
     """
     from .annotate import load_events
+    tc = _settings(cfg, prompt_version)
+    say = (lambda *a: None) if quiet else print
     model = load_photo_traits(cfg, prompt_version)
-    print(f"Version: {_settings(cfg, prompt_version)['prompt_version']}")
+    say(f"Version: {tc['prompt_version']}")
     ev = load_events(cfg)
     if model.empty:
-        print("Sin resultados del modelo todavia")
+        say("Sin resultados del modelo todavia")
         return model
+    if photo_ids is not None:
+        model = model[model["photo_id"].astype(int).isin({int(i) for i in photo_ids})]
     info = ev["photo_info"][["photo_id", "n_in_photo"]].astype({"photo_id": "int64"})
     ind = ev["individual"]
     one = ind.groupby("photo_id").filter(lambda g: len(g) == 1)
@@ -272,30 +299,89 @@ def evaluate_photo_traits(cfg: Config, prompt_version: str | None = None) -> pd.
             model[c] = "not_applicable"
     one = one[["photo_id", "side", "erosion", "photo_quality"]].rename(
         columns={c: f"{c}_human" for c in ("side", "erosion", "photo_quality")})
+    one["photo_id"] = one["photo_id"].astype("int64")
     t = (model.rename(columns={c: f"{c}_model" for c in ("side", "erosion", "photo_quality")})
          .merge(info, on="photo_id", how="left").merge(one, on="photo_id", how="left"))
 
+    m = {"n_photos_model": len(t)}
     cnt = t[t["n_in_photo"].notna()]
+    m["count_n"] = len(cnt)
+    m["count_agreement"] = (float((cnt["n_cuttlebones_visible"] == cnt["n_in_photo"]).mean())
+                            if len(cnt) else None)
     if len(cnt):
-        ok = (cnt["n_cuttlebones_visible"] == cnt["n_in_photo"]).mean()
-        print(f"Huesos visibles por foto: {ok:.0%} iguales ({len(cnt)} fotos anotadas)")
+        say(f"Huesos visibles por foto: {m['count_agreement']:.0%} iguales ({len(cnt)} fotos anotadas)")
+    compared = set(cnt["photo_id"].astype(int))
     for var in ("side", "erosion", "photo_quality"):
         h = t[f"{var}_human"]
-        m = t[f"{var}_model"].astype(str)
-        sub = t[h.notna() & (m != "not_applicable")].copy()
+        mv = t[f"{var}_model"].astype(str)
+        sub = t[h.notna() & (mv != "not_applicable")].copy()
+        m[f"{var}_n"] = len(sub)
         if not len(sub):
-            print(f"{var}: aun no hay fotos comparables")
+            m[f"{var}_agreement"] = None
+            say(f"{var}: aun no hay fotos comparables")
             continue
         sub["h"] = sub[f"{var}_human"].map(          # erosion humana viene como numero
             lambda v: str(int(v)) if isinstance(v, (int, float)) else str(v))
         sub["m"] = sub[f"{var}_model"].astype(str)
-        print(f"{var}: {(sub['h'] == sub['m']).mean():.0%} de acuerdo ({len(sub)} fotos con 1 hueso)")
-        print(pd.crosstab(sub["h"], sub["m"], rownames=["human"], colnames=["model"]))
-        if var == "side" and "side_basis" in sub:
-            # acierto por via de decision (v5-): direct, lines_rule, inferred_*
-            sub["ok"] = sub["h"] == sub["m"]
-            by = sub.groupby("side_basis")["ok"].agg(["mean", "size"])
-            by.columns = ["agreement", "n_photos"]
-            print("lado segun como se decidio:")
-            print(by.round(2))
+        sub["ok"] = sub["h"] == sub["m"]
+        compared |= set(sub["photo_id"].astype(int))
+        m[f"{var}_agreement"] = float(sub["ok"].mean())
+        ct = pd.crosstab(sub["h"], sub["m"], rownames=["human"], colnames=["model"])
+        m[f"{var}_confusion"] = {r: {c: int(ct.loc[r, c]) for c in ct.columns} for r in ct.index}
+        say(f"{var}: {m[f'{var}_agreement']:.0%} de acuerdo ({len(sub)} fotos con 1 hueso)")
+        say(ct)
+        if var == "side":
+            # el modelo dijo 'unclear' pero la persona si decidio: no es error, es abstencion
+            m["side_unclear_model"] = int((sub["m"] == "unclear").sum())
+            decided = sub[sub["m"] != "unclear"]
+            m["side_agreement_when_decided"] = (float(decided["ok"].mean())
+                                                if len(decided) else None)
+            if "side_basis" in sub:
+                # acierto por via de decision (v5-): direct, lines_rule, inferred_*
+                by = sub.groupby("side_basis")["ok"].agg(["mean", "size"])
+                by.columns = ["agreement", "n_photos"]
+                m["side_by_basis"] = {b: {"agreement": float(r.agreement), "n": int(r.n_photos)}
+                                      for b, r in by.iterrows()}
+                say("lado segun como se decidio:")
+                say(by.round(2))
+    t.attrs["metrics"] = m
+    if save:
+        shas = sorted(set(t["prompt_sha"].dropna())) if "prompt_sha" in t else []
+        path = save_metrics(cfg, "photo_traits", {
+            "provider": tc["provider"], "model": tc["model"],
+            "prompt_version": tc["prompt_version"], "prompt_sha": shas,
+            "image_size": tc["image_size"], "eval_set": eval_set,
+            "eval_set_sha": ids_sha(compared), "n_photos_compared": len(compared),
+            "metrics": m})
+        say(f"Metricas guardadas en {path}")
     return t
+
+
+def compare_photo_traits(cfg: Config, versions: list[str], save: bool = True) -> pd.DataFrame:
+    """
+    Compara varias versiones de prompt sobre las MISMAS fotos: las que tienen resultado
+    en todas las versiones y anotacion manual. Asi la diferencia no viene de evaluar
+    conjuntos distintos. Guarda una linea de metricas por version (eval_set='common').
+    """
+    from .annotate import load_events
+    ev = load_events(cfg)
+    annotated = set(ev["photo_info"]["photo_id"].dropna().astype(int))
+    common = annotated
+    for v in versions:
+        d = load_photo_traits(cfg, v)
+        common &= set(d["photo_id"].astype(int)) if len(d) else set()
+    print(f"Fotos comunes (anotadas y con resultado en {len(versions)} versiones): {len(common)}")
+    rows = []
+    for v in versions:
+        t = evaluate_photo_traits(cfg, v, photo_ids=common, save=save,
+                                  eval_set="common:" + ",".join(versions), quiet=True)
+        m = t.attrs.get("metrics", {})
+        rows.append({"prompt_version": v,
+                     **{k: m.get(k) for k in ("count_agreement", "count_n",
+                                              "side_agreement", "side_agreement_when_decided",
+                                              "side_unclear_model", "side_n",
+                                              "erosion_agreement", "erosion_n",
+                                              "photo_quality_agreement", "photo_quality_n")}})
+    out = pd.DataFrame(rows).set_index("prompt_version")
+    print(out.round(2).to_string())
+    return out

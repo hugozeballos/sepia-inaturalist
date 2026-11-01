@@ -1,6 +1,6 @@
 """Procesamiento de registros de Sepia officinalis de iNaturalist."""
 from .config import Config, load_config
-from .io import paths, read_jsonl, write_jsonl, append_jsonl
+from .io import paths, read_jsonl, write_jsonl, append_jsonl, load_metrics
 from .inat import (count_results, download_observations, download_by_ids, load_raw,
                    build_tables, load_tables, download_photos, make_resized,
                    check_download, ids_from_file, ids_from_excel)
@@ -10,6 +10,7 @@ from .annotate import AnnotationApp, load_events
 from . import triage
 from .triage import run_triage, load_triage, load_prompt, evaluate_triage
 from . import photo_traits
-from .photo_traits import run_photo_traits, load_photo_traits, evaluate_photo_traits
+from .photo_traits import (run_photo_traits, load_photo_traits, evaluate_photo_traits,
+                           compare_photo_traits)
 
 __version__ = "0.1.0"

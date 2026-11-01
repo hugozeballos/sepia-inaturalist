@@ -674,7 +674,9 @@ class FakeRecordTraits:
     def __init__(self, bad_index=False):
         self.calls, self.bad_index = [], bad_index
     def classify(self, images, prompt, schema=None):
-        assert schema is sepia.photo_traits.RecordPhotoTraits
+        assert schema in (sepia.photo_traits.RecordPhotoTraits,
+                          sepia.photo_traits.RecordPhotoTraitsV7)
+        v7 = schema is sepia.photo_traits.RecordPhotoTraitsV7
         self.calls.append(len(images))
         photos = []
         for i in range(1, len(images) + 1):
@@ -682,7 +684,8 @@ class FakeRecordTraits:
                            "n_cuttlebones_visible": 1,
                            "side": "ventral" if i == 1 else "dorsal",
                            "side_basis": "direct" if i == 1 else "inferred_same_bone",
-                           "erosion": "1", "photo_quality": "high", "notes": ""})
+                           "erosion": "1", "photo_quality": "high", "notes": "",
+                           **({"side_evidence": "porous surface"} if v7 else {})})
         res = {"photos": photos}
         return res, json.dumps(res), {"input_tokens": 900, "output_tokens": 60}
 
@@ -737,3 +740,30 @@ def test_photo_traits_rules_side_basis():
         assert "side_basis" in text and pt.PROMPT_UNIT[v] == "record"
     assert "LENGTHWISE" in sepia.load_prompt("photo_traits_v6")[0]
     assert "LENGTHWISE" not in sepia.load_prompt("photo_traits_v5")[0]
+
+
+def test_metrics_saved_and_compare(api, cfg, monkeypatch):
+    """Cada evaluacion agrega una linea de metricas; --compare usa las mismas fotos."""
+    from sepia import annotate as an, photo_traits as pt
+    _ready(cfg)
+    cfg.photo_traits = {"provider": "fake", "model": "t3", "requests_per_minute": 100000,
+                        "prompt_version": "photo_traits_v6"}
+    monkeypatch.setattr(pt.time, "sleep", lambda s: None)
+    pt.run_photo_traits(cfg, provider=FakeRecordTraits(), prompt_version="photo_traits_v6")
+    pt.run_photo_traits(cfg, provider=FakeRecordTraits(), ids=[1], prompt_version="photo_traits_v7")
+    t7 = pt.load_photo_traits(cfg, "photo_traits_v7")
+    assert set(t7["side_evidence"]) == {"porous surface"} and len(t7) == 2
+    for pid in (11, 12, 21):
+        an.save_individual(cfg, "HZ", pid // 10, pid, "a",
+                           {"state": "cuttlebone", "side": "ventral", "erosion": 1})
+        an.save_photo_count(cfg, "HZ", pid // 10, pid, 1)
+    t = pt.evaluate_photo_traits(cfg, "photo_traits_v6")
+    m = sepia.load_metrics(cfg, "photo_traits")
+    assert len(m) == 1 and m.iloc[0]["prompt_version"] == "photo_traits_v6"
+    assert m.iloc[0]["metrics"]["side_n"] == 3 and m.iloc[0]["n_photos_compared"] == 3
+    assert t.attrs["metrics"]["side_by_basis"]["direct"]["n"] == 2
+    out = pt.compare_photo_traits(cfg, ["photo_traits_v6", "photo_traits_v7"])
+    assert list(out["side_n"]) == [2, 2]                           # solo fotos del registro 1
+    m = sepia.load_metrics(cfg, "photo_traits")
+    assert len(m) == 3 and m.iloc[1]["eval_set_sha"] == m.iloc[2]["eval_set_sha"]
+    assert "side_evidence" in sepia.load_prompt("photo_traits_v7")[0]

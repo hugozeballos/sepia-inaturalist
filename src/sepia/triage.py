@@ -325,7 +325,8 @@ def load_cases(path: str):
     return cases
 
 
-def evaluate_triage(cfg: Config, provider: str, model: str, cases_path: str):
+def evaluate_triage(cfg: Config, provider: str, model: str, cases_path: str,
+                    save: bool = True):
     """
     Compara el triaje con los casos de prueba. Criterio:
     - estado igual al esperado;
@@ -360,4 +361,19 @@ def evaluate_triage(cfg: Config, provider: str, model: str, cases_path: str):
         print(f"No hay resultados de triaje para {provider}/{model}: correr scripts/triage.py primero")
     n_ok = (out["status"] == "OK").sum()
     print(f"{n_ok}/{len(out)} casos correctos")
+    if save and not tri.empty:
+        # una linea por evaluacion en outputs/metrics/triage_metrics.jsonl (solo se agrega)
+        from .io import save_metrics, ids_sha
+        done = out[out["status"] != "sin resultado"]
+        version = (cfg.triage or {}).get("prompt_version", "triage_v1")   # igual que load_triage
+        _, sha = load_prompt(version)
+        path = save_metrics(cfg, "triage", {
+            "provider": provider, "model": model, "prompt_version": version, "prompt_sha": sha,
+            "eval_set": Path(cases_path).name, "eval_set_sha": ids_sha(cases["observation_id"]),
+            "metrics": {"n_cases": len(out), "n_with_result": len(done), "n_ok": int(n_ok),
+                        "state_ok": int(done["state_ok"].sum()),
+                        "count_ok": int(done["count_ok"].sum()),
+                        "failed_ids": [int(i) for i in out.loc[out["status"] == "FALLA",
+                                                                 "observation_id"]]}})
+        print(f"Metricas guardadas en {path}")
     return out

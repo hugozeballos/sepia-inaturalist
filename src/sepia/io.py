@@ -46,6 +46,15 @@ def _clean(v):
     return v
 
 
+def _deep_clean(v):
+    """_clean recursivo, para dicts y listas anidadas (metricas)."""
+    if isinstance(v, dict):
+        return {str(k): _deep_clean(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_deep_clean(x) for x in v]
+    return _clean(v)
+
+
 def write_jsonl(records, path: Path) -> None:
     """
     Escribe una lista de dicts (o un DataFrame) como JSON Lines.
@@ -146,3 +155,47 @@ def write_manifest(cfg: Config, extra: dict | None = None) -> None:
     (p["base"] / "manifest.json").write_text(json.dumps(m, indent=2, ensure_ascii=False))
 
 
+
+
+# --------------------------------------------------------------------------
+# Metricas de evaluacion: una linea por evaluacion, solo se agregan
+# --------------------------------------------------------------------------
+
+def metrics_path(cfg: Config, kind: str) -> Path:
+    """outputs/metrics/<kind>_metrics.jsonl (p. ej. photo_traits_metrics.jsonl)."""
+    out = Path(cfg.base_dir) / "outputs" / "metrics"
+    out.mkdir(parents=True, exist_ok=True)
+    return out / f"{kind}_metrics.jsonl"
+
+
+def ids_sha(ids) -> str:
+    """Huella corta de un conjunto de IDs (fotos o registros evaluados).
+    Dos evaluaciones con la misma huella usaron exactamente el mismo conjunto."""
+    import hashlib
+    text = ",".join(str(int(i)) for i in sorted(set(ids)))
+    return hashlib.sha256(text.encode()).hexdigest()[:12]
+
+
+def git_commit() -> str | None:
+    """Commit del codigo que evalua (None si no se puede saber)."""
+    import subprocess
+    try:
+        return subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True,
+                              text=True, cwd=Path(__file__).parent, timeout=5).stdout.strip() or None
+    except Exception:
+        return None
+
+
+def save_metrics(cfg: Config, kind: str, record: dict) -> Path:
+    """Agrega una linea de metricas (con fecha y commit) a outputs/metrics/<kind>_metrics.jsonl."""
+    rec = {"evaluated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+           "git_commit": git_commit(), "kind": kind, **record}
+    rec = _deep_clean(rec)
+    path = metrics_path(cfg, kind)
+    append_jsonl(rec, path)
+    return path
+
+
+def load_metrics(cfg: Config, kind: str) -> pd.DataFrame:
+    """Historial de metricas de un paso (una fila por evaluacion)."""
+    return read_jsonl(metrics_path(cfg, kind))

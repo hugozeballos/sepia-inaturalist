@@ -45,6 +45,7 @@ photos/1024px/     para la interfaz de anotación
 annotations/       una .jsonl por anotador
 outputs/           respuestas de los modelos, un archivo por version de prompt
                    (triage_<proveedor>_<modelo>_<version>.jsonl, photo_traits_..._<version>.jsonl)
+outputs/metrics/   una línea por evaluación (triage_metrics.jsonl, photo_traits_metrics.jsonl)
 exports/           Excel generados
 logs/              registro de cada paso
 manifest.json      parámetros y fecha de descarga (para el párrafo de métodos)
@@ -178,6 +179,24 @@ sumar tokens, contar una vez por `call_id`). `--limit` cuenta registros en este 
   atraviesan el hueso a lo largo, de punta a punta, son señal **solo del dorsal** (su ausencia no dice
   nada); el ventral se describe sin líneas (blando, poroso, borde en U o V cerca de la punta posterior).
   v4 y v5 describen el ventral por "líneas finas paralelas", lo que puede marcar ventrales los dorsales.
+- `photo_traits_v7`: v6 + `side_evidence` (pocas palabras con el rasgo visible que decidió el lado,
+  o por qué no se pudo). Mismas definiciones que v6; sirve para auditar el lado y para verificar
+  la regla de las líneas sin mirar cada foto.
+
+### Métricas guardadas
+
+Cada `--evaluate` y cada `--compare` (y `scripts/evaluate_triage.py`) **agrega** una línea a
+`outputs/metrics/<paso>_metrics.jsonl`: fecha, commit, proveedor, modelo, versión y hash del prompt,
+conjunto evaluado (`eval_set`, con su huella `eval_set_sha`), número de fotos y métricas
+(acuerdo, matriz de confusión, acierto por `side_basis`, `side_agreement_when_decided`).
+Nada se sobrescribe. Dos líneas solo son comparables si tienen el mismo `eval_set_sha`: la
+anotación crece, y una versión evaluada antes se evaluó sobre menos fotos. Para comparar
+versiones se usa `--compare`, que evalúa todas sobre las mismas fotos:
+
+```python
+!python scripts/photo_traits.py --config configs/pilot_a1.yaml --compare photo_traits_v4,photo_traits_v6,photo_traits_v7
+sepia.load_metrics(cfg, "photo_traits")      # historial completo
+```
 
 Para probar otra versión sin editar el YAML:
 

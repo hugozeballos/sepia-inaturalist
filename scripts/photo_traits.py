@@ -7,8 +7,11 @@ Uso (en Colab, con GEMINI_API_KEY en el entorno):
     !python scripts/photo_traits.py --config configs/pilot_a1.yaml               # todas las fotos
     !python scripts/photo_traits.py --config configs/pilot_a1.yaml --evaluate    # vs anotacion manual
     !python scripts/photo_traits.py --config configs/pilot_a1.yaml --prompt-version photo_traits_v5
+    !python scripts/photo_traits.py --config configs/pilot_a1.yaml --compare photo_traits_v4,photo_traits_v6,photo_traits_v7
 
 Cada version de prompt escribe en su propio archivo (outputs/photo_traits_..._<version>.jsonl).
+Cada --evaluate / --compare agrega una linea a outputs/metrics/photo_traits_metrics.jsonl
+(version, hash del prompt, conjunto de fotos evaluado, commit y metricas): nada se sobrescribe.
 Reanudable: las fotos ya hechas con el mismo prompt se saltan. --redo las rehace (agrega lineas).
 """
 import argparse
@@ -26,9 +29,14 @@ ap.add_argument("--redo", action="store_true", help="rehacer aunque ya esten hec
 ap.add_argument("--evaluate", action="store_true", help="comparar con la anotacion manual y salir")
 ap.add_argument("--prompt-version", default=None,
                 help="usar esta version de prompt en vez de la del YAML (p. ej. photo_traits_v5)")
+ap.add_argument("--compare", default=None,
+                help="versiones separadas por comas: evaluar todas sobre las mismas fotos y salir")
 args = ap.parse_args()
 
 cfg = sepia.load_config(args.config)
+if args.compare:
+    sepia.compare_photo_traits(cfg, [v.strip() for v in args.compare.split(",") if v.strip()])
+    sys.exit(0)
 if args.evaluate:
     sepia.evaluate_photo_traits(cfg, prompt_version=args.prompt_version)
     sys.exit(0)
