@@ -79,7 +79,7 @@ def filter_rows(t: pd.DataFrame, versions: list[str], only: str) -> pd.DataFrame
         return t[annotated]
     sides = [f"side__{v}" for v in versions if f"side__{v}" in t]
     if only == "versions_differ":
-        s = t[sides].map(_norm)
+        s = t[sides].map(_norm).replace("", pd.NA)      # sin resultado en una version: no cuenta
         return t[s.nunique(axis=1) > 1]
     if only == "model_wrong":
         if "side__human" not in t:
