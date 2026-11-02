@@ -25,7 +25,7 @@ src/sepia/      funciones
   inat.py       descarga de registros y fotos, tablas, versiones reducidas
   export.py     Excel de entrega
   triage.py     triaje por registro con un modelo de visión (Gemini; Qwen después)
-  prompts/      prompts versionados (triage_vN.txt, photo_traits_vN.txt); nunca se editan:
+  prompts/      prompts versionados (triage_vN.txt, photo_traits_vN.txt; resumen en docs/prompt_versions.md); nunca se editan:
                 cada cambio es una version nueva
 tests/          pruebas sin internet (API simulada)
 docs/           documentación
