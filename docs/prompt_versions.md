@@ -49,6 +49,12 @@ Erosión y calidad: desde v4, el texto es el mismo en todas las versiones. v5-v1
 - **dorsal**: algún rasgo dorsal fuerte y ningún rasgo ventral, ni fuerte ni débil (`smooth_hard_uniform_face` cuenta como fuerte solo con calidad `high`);
 - **unclear**: en cualquier otro caso.
 
+## Marcas de picoteo (`bitemarks`, por foto)
+
+| Versión | Hash | Qué hace |
+|---|---|---|
+| `bitemarks_v1` | `46392ea66902` | Zero-shot, 1024 px, solo con 1 hueso visible. Definición tomada de la guía de Martin: muesca triangular o en V con paredes nítidas (`triangular_notch`), o corte curvo como el costado de un pico (`beak_side_arc`). El modelo lista hasta 6 candidatas y para cada una se pregunta: ¿arena o suciedad?, ¿borde roto?, ¿grieta?, ¿hoyo de erosión?, ¿sombra o reflejo? Ante la duda debe responder `true`. Un script fijo decide `bitemarks_rule` (yes / probable / no / not_assessable); también se guarda la respuesta del modelo (`bitemarks`). |
+
 ## Historia del criterio de lado
 
 1. v1-v5 siguen la guía de Martin (ventral laminado, con líneas en arco).

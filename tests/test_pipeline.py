@@ -835,3 +835,66 @@ def test_side_from_signs_and_v10(api, cfg, monkeypatch):
     from sepia import review
     rt = review.review_table(cfg, ["photo_traits_v10"])
     assert "side_rule__photo_traits_v10" in rt and review._norm(["a", "b"]) == "a, b"
+
+
+class FakeBitemarks:
+    """Foto en posicion 1: muesca limpia (yes por regla). Posicion 2: muesca que podria ser
+    borde roto (no por regla), aunque el modelo diga yes."""
+    name = "fake"
+    def __init__(self):
+        self.calls = 0
+    def classify(self, images, prompt, schema=None):
+        assert schema is sepia.bitemarks.BitemarksResult and len(images) == 1
+        self.calls += 1
+        broken = self.calls % 2 == 0
+        res = {"n_cuttlebones_visible": 1, "assessable": "yes", "bitemarks": "yes", "notes": "",
+               "candidates": [{"location": "edge", "shape": "triangular_notch", "edges": "sharp",
+                               "is_sand_or_debris": False, "is_broken_edge": broken,
+                               "is_crack": False, "is_erosion_pit": False,
+                               "is_shadow_or_reflection": False, "description": "V notch"}]}
+        return res, json.dumps(res), {"input_tokens": 500, "output_tokens": 80}
+
+
+def test_bitemarks(api, cfg, monkeypatch):
+    """Paso aparte: regla fija desde las candidatas, archivo propio, evaluacion y metricas."""
+    from sepia import annotate as an, bitemarks as bm
+    f = bm.rule_from_candidates
+    clean = {"shape": "triangular_notch", "edges": "sharp", **{k: False for k in bm.CHECKS}}
+    assert f([clean], 1, "yes") == "yes"
+    assert f([{**clean, "edges": "worn"}], 1, "yes") == "probable"
+    assert f([{**clean, "is_crack": True}], 1, "yes") == "no"
+    assert f([{**clean, "shape": "round_hole"}], 1, "yes") == "no"
+    assert f([], 1, "yes") == "no"
+    assert f([clean], 1, "no") == "not_assessable"
+    assert f([clean], 2, "yes") == "not_applicable"
+    r, _ = bm.apply_rules({"n_cuttlebones_visible": 3, "assessable": "yes", "bitemarks": "yes",
+                           "candidates": [clean], "notes": ""})
+    assert r["bitemarks"] == "not_applicable" and r["candidates"] == [] and r["n_candidates"] == 0
+    assert "is_broken_edge" in sepia.load_prompt("bitemarks_v1")[0]
+
+    _ready(cfg)
+    monkeypatch.setattr(bm.time, "sleep", lambda s: None)
+    prov = FakeBitemarks()
+    bm.run_bitemarks(cfg, provider=prov, ids=[1, 2])
+    bm.run_bitemarks(cfg, provider=prov, ids=[1, 2])                      # reanuda: nada nuevo
+    assert prov.calls == 4
+    out = bm.output_path(cfg, "gemini", "gemini-3.5-flash-lite", "bitemarks_v1")
+    assert out.exists() and len(sepia.read_jsonl(out)) == 4
+    t = bm.load_bitemarks(cfg)
+    assert set(t.loc[t["position"] == 1, "bitemarks_rule"]) == {"yes"}
+    assert set(t.loc[t["position"] == 2, "bitemarks_rule"]) == {"no"}
+    # anotador: 11 yes (ventral), 12 no (ventral), 21 (yes) (ventral)
+    for pid, bmv in ((11, "yes"), (12, "no"), (21, "(yes)")):
+        an.save_individual(cfg, "HZ", pid // 10, pid, "a",
+                           {"state": "cuttlebone", "side": "ventral", "erosion": 1, "bitemarks": bmv})
+    e = bm.evaluate_bitemarks(cfg)
+    m = e.attrs["metrics"]
+    assert m["bitemarks_all"]["fp"] == 1 and m["bitemarks_all"]["tp"] == 2      # el modelo dice yes a todo
+    assert m["bitemarks_rule_all"] == {**m["bitemarks_rule_all"], "tp": 2, "fp": 0, "tn": 1, "fn": 0}
+    assert m["bitemarks_rule_all"]["precision"] == 1.0
+    assert len(sepia.load_metrics(cfg, "bitemarks")) == 1
+    from sepia import review
+    rt = review.review_table(cfg, ["bitemarks_v1"])
+    assert "bitemarks_rule__bitemarks_v1" in rt and "bitemarks__human" in rt
+    assert "broken_edge" in review._norm({**clean, "is_broken_edge": True, "location": "edge",
+                                          "description": "x"})

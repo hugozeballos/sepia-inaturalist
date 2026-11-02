@@ -13,4 +13,7 @@ from . import photo_traits
 from .photo_traits import (run_photo_traits, load_photo_traits, evaluate_photo_traits,
                            compare_photo_traits)
 
+from . import bitemarks
+from .bitemarks import run_bitemarks, load_bitemarks, evaluate_bitemarks
+
 __version__ = "0.1.0"

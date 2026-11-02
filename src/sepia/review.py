@@ -24,7 +24,8 @@ from .photo_traits import load_photo_traits
 
 # Filas de la tabla (en este orden)
 FIELDS = ["n_cuttlebones_visible", "side", "side_rule", "side_basis", "side_signs", "side_evidence",
-          "erosion", "photo_quality", "notes"]
+          "erosion", "photo_quality", "bitemarks", "bitemarks_rule", "n_candidates", "candidates",
+          "notes"]
 FILTERS = ["all", "annotated", "versions_differ", "model_wrong"]
 
 
@@ -38,8 +39,10 @@ def review_table(cfg: Config, versions: list[str]) -> pd.DataFrame:
     t = read_jsonl(p["tables"] / "photos.jsonl").sort_values(["observation_id", "position"])
     t = t[["observation_id", "photo_id", "position", "file_name"]].copy()
     t["photo_id"] = t["photo_id"].astype("int64")
+    from .bitemarks import load_bitemarks
     for v in versions:
-        m = load_photo_traits(cfg, v)
+        # versiones de picoteo (bitemarks_vN) o de rasgos por foto (photo_traits_vN)
+        m = load_bitemarks(cfg, v) if v.startswith("bitemarks_") else load_photo_traits(cfg, v)
         if m.empty:
             continue
         cols = [c for c in FIELDS if c in m]
@@ -54,18 +57,25 @@ def review_table(cfg: Config, versions: list[str]) -> pd.DataFrame:
     ind = ev["individual"]
     if len(ind):
         one = ind.groupby("photo_id").filter(lambda g: len(g) == 1)
-        keep = [c for c in ("side", "erosion", "photo_quality", "notes") if c in one]
+        keep = [c for c in ("side", "erosion", "photo_quality", "bitemarks", "notes") if c in one]
         one = one[["photo_id"] + keep].astype({"photo_id": "int64"})
         t = t.merge(one.rename(columns={c: f"{c}__human" for c in keep}), on="photo_id", how="left")
     if "side__human" in t:
         t["side_rule__human"] = t["side__human"]   # el lado por regla se compara con el mismo lado
+    if "bitemarks__human" in t:
+        t["bitemarks_rule__human"] = t["bitemarks__human"]
     return t.reset_index(drop=True)
 
 
 def _norm(v) -> str:
     """Valor como texto para mostrar y comparar (erosion humana viene como numero)."""
-    if isinstance(v, (list, tuple)):              # side_signs (v10-)
-        return ", ".join(str(x) for x in v)
+    if isinstance(v, (list, tuple)):              # side_signs (v10-), candidates (bitemarks)
+        sep = "; " if any(isinstance(x, dict) for x in v) else ", "
+        return sep.join(_norm(x) for x in v)
+    if isinstance(v, dict):                       # una candidata de picoteo
+        flags = [k[3:] for k, x in v.items() if k.startswith("is_") and x]
+        return (f"{v.get('shape')}/{v.get('edges')}/{v.get('location')}"
+                + (f" [{', '.join(flags)}]" if flags else "") + f": {v.get('description', '')}")
     if v is None or (isinstance(v, float) and v != v):
         return ""
     if isinstance(v, float) and v.is_integer():
@@ -158,16 +168,20 @@ class ReviewApp:
         head = "".join(f"<th style='padding:4px 8px'>{html.escape(c.replace('photo_traits_', ''))}</th>"
                        for c in cols)
         body = ""
-        for field in FIELDS:
+        # filas sin ningun valor (p. ej. picoteo cuando solo se ven versiones de lado): no se muestran
+        for field in [f for f in FIELDS if any(f"{f}__{c}" in self.rows for c in cols)]:
             vals = [_norm(r.get(f"{field}__{c}")) for c in cols]
+            if field in ("bitemarks", "bitemarks_rule"):
+                # para comparar: (yes) del anotador = probable del modelo
+                vals = ["probable" if v == "(yes)" else v for v in vals]
             model_vals = {v for v in vals[:-1] if v}
             human = vals[-1]
             cells = ""
             for c, v in zip(cols, vals):
                 style = "padding:4px 8px"
-                if field in ("side", "side_rule", "erosion", "photo_quality",
-                             "n_cuttlebones_visible") and c != "human":
-                    if human and v and v != "not_applicable" and v != human:
+                if field in ("side", "side_rule", "erosion", "photo_quality", "bitemarks",
+                             "bitemarks_rule", "n_cuttlebones_visible") and c != "human":
+                    if human and v and v not in ("not_applicable", "not_assessable") and v != human:
                         style += ";background:#f8d7da;color:#000"     # distinto de la persona
                     elif len(model_vals) > 1:
                         style += ";background:#fff3cd;color:#000"     # versiones no coinciden

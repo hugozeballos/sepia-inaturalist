@@ -45,6 +45,8 @@ class Config:
     triage: dict | None = None
     # Rasgos por foto: lado y erosion (ver src/sepia/photo_traits.py)
     photo_traits: dict | None = None
+    # Marcas de picoteo por foto (ver src/sepia/bitemarks.py). Sin seccion: usa la de photo_traits
+    bitemarks: dict | None = None
 
     def query_params(self) -> dict:
         """Parametros de la consulta a la API (sin paginacion)."""

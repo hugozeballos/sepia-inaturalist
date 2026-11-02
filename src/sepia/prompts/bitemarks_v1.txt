@@ -1,0 +1,59 @@
+You are helping to annotate photos of common cuttlefish (Sepia officinalis) cuttlebones stranded on North Sea beaches.
+The task is to find BITE MARKS: marks left by the beak or teeth of a predator (fish, birds, other
+cuttlefish) on the bone. They are mostly seen on the ventral side of the bone.
+
+You receive ONE photo. Answer only about what is visible in this photo.
+
+1. "n_cuttlebones_visible": the number of cuttlebones visible in the photo. Count a bone only
+if at least roughly half of it is visible. Use 0 if there are none.
+
+2. Only if EXACTLY ONE cuttlebone is visible, look for bite marks on it. Otherwise use
+"not_applicable" for "assessable" and "bitemarks", and an empty list for "candidates".
+
+"assessable": "yes" if the surface and the outline of the bone are visible and sharp enough
+to look for marks a few millimetres in size; "no" if the bone is mostly covered, blurry or too
+small or far away.
+
+What bite marks look like (from the project guidelines):
+- "triangular_notch": the typical bite mark. A small triangular or V-shaped notch or cut,
+  pressed or cut INTO the bone surface or into the edge, with clean, sharp walls.
+- "beak_side_arc": a curved, sharp-edged cut or dent, like the side of a beak pressed into
+  the bone.
+Bite marks may come alone or in groups or rows.
+
+"candidates": list EVERY mark on the bone that COULD be a bite mark (at most 6, the clearest
+first). For EACH candidate, first look at it closely and answer every question below. These
+questions are there to rule out things that only look like bite marks.
+- "location": "edge" (cut into the outline of the bone) or "surface" (on the face of the bone).
+- "shape": "triangular_notch", "beak_side_arc", "round_hole", "linear" (a straight line or
+  scratch) or "irregular".
+- "edges": "sharp" (clean cut, crisp walls, as if pressed or cut) or "worn" (rounded, smoothed,
+  gradual, as if worn away).
+- "is_sand_or_debris": true if it could be sand grains, a dark dot, dirt, a stain or bits of
+  seaweed lying ON the bone, not a mark IN the bone.
+- "is_broken_edge": true if it could be a part of the outline where a piece broke off or wore
+  away (erosion), and not a separate cut.
+- "is_crack": true if it could be a crack or fracture line running through the bone.
+- "is_erosion_pit": true if it could be a hole, pit or patch where the surface or a layer of
+  the bone has worn or flaked away.
+- "is_shadow_or_reflection": true if it could be a shadow, a reflection or an effect of light.
+- "description": a few words saying what you see and where (for example "V-shaped notch on
+  the left edge, near the front end").
+Answer "true" whenever you are not sure that it is NOT that thing.
+
+"bitemarks": your overall answer for this bone.
+- "yes": at least one candidate is a "triangular_notch" or "beak_side_arc" with "sharp" edges
+  and all five "is_..." questions answered false.
+- "probable": no candidate meets that, but at least one has a bite-mark shape and all five
+  "is_..." questions answered false, with "worn" edges.
+- "no": no candidate looks like a bite mark (or there are no candidates).
+- "not_assessable": "assessable" is "no".
+
+"notes": one short sentence only if something is unusual. Otherwise an empty string.
+
+Rules:
+- Judge only what is visible. Do not guess.
+- A false bite mark is worse than a missed one: when in doubt about a candidate, answer the
+  "is_..." question with true.
+- Do not describe or identify people (a bone may be held in a hand).
+- Answer only with the JSON requested.

@@ -203,6 +203,28 @@ sumar tokens, contar una vez por `call_id`). `--limit` cuenta registros en este 
   anotada (`*_by_erosion`) y en qué lado anotó la persona las fotos con cada rasgo
   (`side_sign_reliability`).
 
+## Marcas de picoteo (Gemini, sin ejemplos)
+
+Paso aparte de `photo_traits` (prompt `bitemarks_vN`, archivo propio
+`outputs/bitemarks_<proveedor>_<modelo>_<version>.jsonl`), una consulta por foto, solo con 1 hueso
+visible. Para bajar los falsos positivos, el modelo lista cada marca candidata y contesta para cada
+una: forma (`triangular_notch`, `beak_side_arc`, `round_hole`, `linear`, `irregular`), bordes
+(`sharp`/`worn`), lugar (`edge`/`surface`) y cinco preguntas: ¿arena o suciedad?, ¿borde roto?,
+¿grieta?, ¿hoyo de erosión?, ¿sombra o reflejo? Con eso, un script fijo decide `bitemarks_rule`:
+`yes` = forma de picoteo + bordes `sharp` + las cinco en false; `probable` = igual con bordes `worn`;
+si no, `no` (`not_assessable` si el hueso no se ve bien). Se guarda también la respuesta del modelo
+(`bitemarks`) para comparar.
+
+```python
+!python scripts/bitemarks.py --config configs/pilot_a1.yaml --limit 5       # prueba
+!python scripts/bitemarks.py --config configs/pilot_a1.yaml --annotated     # fotos evaluables
+!python scripts/bitemarks.py --config configs/pilot_a1.yaml --evaluate      # vs anotación manual
+```
+
+La evaluación usa fotos con un único individuo anotado (`yes` y `(yes)` = positivo, `no` = negativo):
+precisión, sensibilidad y matriz de confusión, en todas las fotos y separadas por el lado anotado.
+Se guarda en `outputs/metrics/bitemarks_metrics.jsonl`.
+
 ### Visor de resultados
 
 Foto + valores de cada versión lado a lado + anotación manual (rojo = distinto de la persona,
@@ -211,6 +233,7 @@ amarillo = las versiones no coinciden). Solo lee archivos.
 ```python
 from sepia.review import ReviewApp
 ReviewApp(cfg, ["photo_traits_v6", "photo_traits_v8", "photo_traits_v9"]).show()
+ReviewApp(cfg, ["bitemarks_v1"]).show()                 # picoteo: candidatas y respuestas
 # filtros: only="annotated" (por defecto), "model_wrong", "versions_differ", "all"
 ```
 
