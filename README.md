@@ -234,7 +234,9 @@ amarillo = las versiones no coinciden). Solo lee archivos.
 from sepia.review import ReviewApp
 ReviewApp(cfg, ["photo_traits_v6", "photo_traits_v8", "photo_traits_v9"]).show()
 ReviewApp(cfg, ["bitemarks_v1"]).show()                 # picoteo: candidatas y respuestas
-# filtros: only="annotated" (por defecto), "model_wrong", "versions_differ", "all"
+# filtros: only="annotated" (por defecto), "model_wrong", "versions_differ", "all",
+#          "versions_agree_human_agrees", "versions_agree_human_differs"
+# photo_ids=[...] muestra solo esas fotos
 ```
 
 Para no romper la anotación a ciegas, mirar solo fotos ya anotadas.

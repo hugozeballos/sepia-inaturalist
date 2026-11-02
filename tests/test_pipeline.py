@@ -782,6 +782,9 @@ def test_metrics_saved_and_compare(api, cfg, monkeypatch):
     wrong = review.filter_rows(rt, ["photo_traits_v6"], "model_wrong")
     assert set(wrong["photo_id"]) == {12}               # foto 2: dorsal para el modelo, ventral anotada
     assert len(review.filter_rows(rt, ["photo_traits_v6", "photo_traits_v7"], "versions_differ")) == 0
+    vv = ["photo_traits_v6", "photo_traits_v7"]
+    assert set(review.filter_rows(rt, vv, "versions_agree_human_differs")["photo_id"]) == {12}
+    assert set(review.filter_rows(rt, vv, "versions_agree_human_agrees")["photo_id"]) == {11}
     v9 = sepia.load_prompt("photo_traits_v9")[0]
     assert "bands_rule" in v9 and "ACROSS" in v9
     pt.RecordPhotoTraitsV9.model_validate({"photos": [{

@@ -26,7 +26,8 @@ from .photo_traits import load_photo_traits
 FIELDS = ["n_cuttlebones_visible", "side", "side_rule", "side_basis", "side_signs", "side_evidence",
           "erosion", "photo_quality", "bitemarks", "bitemarks_rule", "n_candidates", "candidates",
           "notes"]
-FILTERS = ["all", "annotated", "versions_differ", "model_wrong"]
+FILTERS = ["all", "annotated", "versions_differ", "model_wrong",
+           "versions_agree_human_agrees", "versions_agree_human_differs"]
 
 
 def review_table(cfg: Config, versions: list[str]) -> pd.DataFrame:
@@ -95,6 +96,19 @@ def filter_rows(t: pd.DataFrame, versions: list[str], only: str) -> pd.DataFrame
     if only == "versions_differ":
         s = t[sides].map(_norm).replace("", pd.NA)      # sin resultado en una version: no cuenta
         return t[s.nunique(axis=1) > 1]
+    if only in ("versions_agree_human_agrees", "versions_agree_human_differs"):
+        # todas las versiones deciden el mismo lado (dorsal/ventral) y la persona anoto
+        # dorsal/ventral; luego: la persona coincide o no
+        if "side__human" not in t or not sides:
+            return t.iloc[0:0]
+        s = t[sides].map(_norm)
+        decided = s.isin(["dorsal", "ventral"]).all(axis=1)
+        same = s.nunique(axis=1) == 1
+        h = t["side__human"].map(_norm)
+        human_ok = h.isin(["dorsal", "ventral"])
+        hit = s.iloc[:, 0] == h
+        keep = decided & same & human_ok & (hit if only.endswith("agrees") else ~hit)
+        return t[keep]
     if only == "model_wrong":
         if "side__human" not in t:
             return t.iloc[0:0]
@@ -111,11 +125,14 @@ class ReviewApp:
     """Foto + tabla de valores por version y anotacion manual. Prev / Next / Go to ID."""
 
     def __init__(self, cfg: Config, versions: list[str], only: str = "annotated",
-                 image_px: int = 1024, image_width: str = "520px"):
+                 image_px: int = 1024, image_width: str = "520px", photo_ids=None):
+        """photo_ids: mostrar solo estas fotos (p. ej. una lista armada a mano)."""
         import ipywidgets as w
         self.w, self.cfg, self.versions = w, cfg, versions
         self.img_dir = paths(cfg)["base"] / "photos" / f"{image_px}px"
         self.full = review_table(cfg, versions)
+        if photo_ids is not None:
+            self.full = self.full[self.full["photo_id"].isin({int(i) for i in photo_ids})]
         self.header = w.HTML()
         self.image = w.Image(format="jpeg", layout=w.Layout(max_width=image_width,
                                                             max_height="600px",
