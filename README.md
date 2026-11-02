@@ -197,6 +197,8 @@ sumar tokens, contar una vez por `call_id`). `--limit` cuenta registros en este 
 - `photo_traits_v11`: v10 + guía de Martin ("dorsal: smoother and harder"; "ventral: laminated,
   often bite marks"): `laminated_surface` (V fuerte), `bite_marks` (V débil),
   `smooth_hard_uniform_face` (D, solo con calidad `high`).
+- `photo_traits_v12`: v8 + "si dudas, `unclear`" en el prompt + regla fija en el código: con
+  erosión 3 (según el modelo), lado `unclear` (el lado original queda en `side_raw`).
 - Desde v10, además del lado del modelo (`side`), el código calcula `side_rule` con una tabla fija
   (`photo_traits.side_from_signs`, solo con los rasgos de la foto): lado fuerte sin ningún rasgo
   del lado contrario; si no, `unclear`. La evaluación mide los dos, el acierto según la erosión

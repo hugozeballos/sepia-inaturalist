@@ -28,6 +28,7 @@ Desde v1 el lado, la erosión y la calidad se describen solo si hay **exactament
 | `photo_traits_v9` | `8cfefc974530` | registro | v8 + **bandas curvas transversales** como señal ventral (`bands_rule`). **Experimento.** En la revisión del 2 nov "vio" bandas en dorsales y usó la regla entre fotos sobre fotos ya decididas. | — |
 | `photo_traits_v10` | `cda4c89c6b1b` | registro | **Literatura** (FAO, Reid, VLIZ). Rasgos en lista cerrada (`side_signs`): ventral fuerte `inner_cone_rim`, `striated_zone`; dorsal fuerte `granular_shield`; débiles `median_groove` (V), `chitinous_posterior_cap` (D); neutros `transverse_lines`, `lengthwise_lines`, `white_chalky_or_porous`. Las líneas ya no deciden. Rasgos de los dos lados o solo débiles → `unclear`. La regla entre fotos solo para fotos sin rasgo fuerte y con el mismo hueso. | + `side_signs`; `side_basis` = direct / inferred_same_bone / unclear. El código calcula `side_rule` (tabla fija). |
 | `photo_traits_v11` | `b2f3ddd87f15` | registro | v10 + **guía de Martin**: `laminated_surface` (V fuerte), `bite_marks` (V débil), `smooth_hard_uniform_face` (D; cuenta solo con calidad `high` y sin ningún rasgo ventral). | Igual que v10. |
+| `photo_traits_v12` | `ad4747107a0c` | registro | **v8 + "si dudas, `unclear`"**: un lado equivocado es peor que `unclear`; no decidir por la impresión general (blanco, liso, tiza, poroso), solo por un rasgo visible. **Regla fija en el código:** con erosión 3 (según el modelo), lado = `unclear`; el lado original queda en `side_raw`. La regla se simuló sobre v8 (2 nov): el acierto del lado fue 88 % con erosión 1, 76 % con 2 y 60 % con 3; con la regla, decide 66/81 fotos con 85 % de acierto, frente a 81/81 con 80 %. Pendiente avisar a Martin. Se basa en el criterio de líneas de v8 (pendiente con Martin). | Igual que v8 (`side_evidence`). Evaluación también de `side_raw`. |
 
 Erosión y calidad: desde v4, el texto es el mismo en todas las versiones. v5-v11 solo cambian el lado.
 
@@ -60,5 +61,6 @@ Erosión y calidad: desde v4, el texto es el mismo en todas las versiones. v5-v1
 1. v1-v5 siguen la guía de Martin (ventral laminado, con líneas en arco).
 2. v6-v9 se basan en la observación de Hugo (líneas o crestas a lo largo = dorsal).
 3. v10-v11 vuelven a la literatura y a la guía de Martin con rasgos explícitos, y las líneas dejan de decidir.
+4. En la comparación del 2 nov, v10 y v11 llaman ventrales a ~19 de los 39 dorsales anotados y v8 es el más equilibrado. v12 parte de v8, con más `unclear`, mientras Martin decide el criterio.
 
 Pendiente con Martin: si las crestas a lo largo son dorsales en *S. officinalis*.

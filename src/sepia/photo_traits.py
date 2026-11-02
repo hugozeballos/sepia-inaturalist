@@ -152,19 +152,26 @@ SCHEMA_BY_VERSION = {"photo_traits_v7": RecordPhotoTraitsV7,
                      "photo_traits_v8": RecordPhotoTraitsV7,
                      "photo_traits_v9": RecordPhotoTraitsV9,
                      "photo_traits_v10": RecordPhotoTraitsV10,
-                     "photo_traits_v11": RecordPhotoTraitsV11}
+                     "photo_traits_v11": RecordPhotoTraitsV11,
+                     "photo_traits_v12": RecordPhotoTraitsV7}
 
 
 # Unidad de consulta de cada version de prompt (la que no esta, es "photo").
 PROMPT_UNIT = {"photo_traits_v5": "record", "photo_traits_v6": "record",
                "photo_traits_v7": "record", "photo_traits_v8": "record",
                "photo_traits_v9": "record", "photo_traits_v10": "record",
-               "photo_traits_v11": "record"}
+               "photo_traits_v11": "record", "photo_traits_v12": "record"}
+
+# Regla fija de v12: con erosion 3 (segun el modelo) el lado queda 'unclear'.
+# Simulada sobre v8 (2 nov): el acierto del lado cae con la erosion (88 % con 1, 76 % con 2,
+# 60 % con 3). El lado original del modelo se guarda en side_raw para medir el efecto.
+EROSION3_SIDE_UNCLEAR = {"photo_traits_v12"}
 
 
-def apply_rules(result: dict) -> tuple[dict, list[str]]:
+def apply_rules(result: dict, prompt_version: str | None = None) -> tuple[dict, list[str]]:
     """
     Reglas fijas por foto:
+    - v12: con erosion '3' el lado queda 'unclear' (el lado del modelo queda en side_raw);
     - lado, erosion y calidad solo con exactamente 1 hueso visible;
     - side_basis (si existe) coherente con el lado: lado 'unclear' -> base 'unclear';
       lado 'not_applicable' -> base 'not_applicable';
@@ -181,6 +188,11 @@ def apply_rules(result: dict) -> tuple[dict, list[str]]:
         if r.get("side_signs"):
             r["side_signs"] = []
             applied.append("n_visible!=1 -> side_signs=[]")
+    if prompt_version in EROSION3_SIDE_UNCLEAR:
+        r["side_raw"] = r.get("side")
+        if r.get("erosion") == "3" and r.get("side") in ("dorsal", "ventral"):
+            r["side"] = "unclear"
+            applied.append("erosion=3 -> side=unclear")
     if "side_basis" in r:
         for side in ("unclear", "not_applicable"):
             if r.get("side") == side and r.get("side_basis") != side:
@@ -303,7 +315,7 @@ def run_photo_traits(cfg: Config, provider=None, limit: int | None = None,
             per_photo = (split_record_result(result, len(g)) if tc["unit"] == "record"
                          else [result])
             for r, res in zip(g.itertuples(index=False), per_photo):
-                res, rules = apply_rules(res)
+                res, rules = apply_rules(res, tc["prompt_version"])
                 lines.append({**base, "photo_id": int(r.photo_id), "position": int(r.position),
                               "result": res, "rules_applied": rules, "raw_response": raw,
                               **usage, "elapsed_s": elapsed, "error": None})
@@ -403,7 +415,11 @@ def evaluate_photo_traits(cfg: Config, prompt_version: str | None = None,
     if "side_rule" in t:
         t = t.rename(columns={"side_rule": "side_rule_model"})
         t["side_rule_human"] = t["side_human"]
-    for var in ("side", "side_rule", "erosion", "photo_quality"):
+    # v12: lado del modelo antes de la regla de erosion
+    if "side_raw" in t:
+        t = t.rename(columns={"side_raw": "side_raw_model"})
+        t["side_raw_human"] = t["side_human"]
+    for var in ("side", "side_raw", "side_rule", "erosion", "photo_quality"):
         if f"{var}_model" not in t:
             continue
         h = t[f"{var}_human"]
@@ -424,7 +440,7 @@ def evaluate_photo_traits(cfg: Config, prompt_version: str | None = None,
         m[f"{var}_confusion"] = {r: {c: int(ct.loc[r, c]) for c in ct.columns} for r in ct.index}
         say(f"{var}: {m[f'{var}_agreement']:.0%} de acuerdo ({len(sub)} fotos con 1 hueso)")
         say(ct)
-        if var in ("side", "side_rule"):
+        if var in ("side", "side_raw", "side_rule"):
             # el modelo dijo 'unclear' pero la persona si decidio: no es error, es abstencion
             m[f"{var}_unclear_model"] = int((sub["m"] == "unclear").sum())
             decided = sub[sub["m"] != "unclear"]
@@ -498,6 +514,7 @@ def compare_photo_traits(cfg: Config, versions: list[str], save: bool = True) ->
                      **{k: m.get(k) for k in ("count_agreement", "count_n",
                                               "side_agreement", "side_agreement_when_decided",
                                               "side_unclear_model", "side_n",
+                                              "side_raw_agreement_when_decided",
                                               "side_rule_agreement_when_decided",
                                               "side_rule_unclear_model",
                                               "erosion_agreement", "erosion_n",

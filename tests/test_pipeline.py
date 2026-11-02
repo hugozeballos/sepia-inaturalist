@@ -901,3 +901,22 @@ def test_bitemarks(api, cfg, monkeypatch):
     assert "bitemarks_rule__bitemarks_v1" in rt and "bitemarks__human" in rt
     assert "broken_edge" in review._norm({**clean, "is_broken_edge": True, "location": "edge",
                                           "description": "x"})
+
+
+def test_v12_erosion_rule():
+    """v12: v8 + 'si dudas, unclear' en el prompt; erosion 3 -> side unclear en el codigo."""
+    from sepia import photo_traits as pt
+    base = {"n_cuttlebones_visible": 1, "side": "ventral", "side_basis": "direct",
+            "side_evidence": "rim", "erosion": "3", "photo_quality": "high", "notes": ""}
+    r, rules = pt.apply_rules(base, "photo_traits_v12")
+    assert r["side"] == "unclear" and r["side_raw"] == "ventral" and r["side_basis"] == "unclear"
+    assert "erosion=3 -> side=unclear" in rules
+    r, _ = pt.apply_rules({**base, "erosion": "2"}, "photo_traits_v12")
+    assert r["side"] == "ventral" and r["side_raw"] == "ventral"
+    r, _ = pt.apply_rules(base, "photo_traits_v8")                  # otras versiones: sin regla
+    assert r["side"] == "ventral" and "side_raw" not in r
+    v12 = sepia.load_prompt("photo_traits_v12")[0]
+    v8 = sepia.load_prompt("photo_traits_v8")[0]
+    assert "A wrong side is worse" in v12 and "A wrong side is worse" not in v8
+    assert v12.replace(v8, "") != v12 or len(v12) > len(v8)
+    assert pt.SCHEMA_BY_VERSION["photo_traits_v12"] is pt.RecordPhotoTraitsV7
