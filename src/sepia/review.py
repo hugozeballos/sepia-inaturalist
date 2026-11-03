@@ -24,7 +24,8 @@ from .photo_traits import load_photo_traits
 
 # Filas de la tabla (en este orden)
 FIELDS = ["n_cuttlebones_visible", "side", "side_rule", "side_basis", "side_signs", "side_evidence",
-          "erosion", "photo_quality", "bitemarks", "bitemarks_rule", "n_candidates", "candidates",
+          "erosion", "photo_quality", "cover", "focus", "quality_evidence",
+          "bitemarks", "bitemarks_rule", "n_candidates", "candidates",
           "notes"]
 FILTERS = ["all", "annotated", "versions_differ", "model_wrong",
            "versions_agree_human_agrees", "versions_agree_human_differs"]

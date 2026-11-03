@@ -936,3 +936,32 @@ def test_v13_side_text():
                            "side_evidence": "rim", "erosion": "3", "photo_quality": "high",
                            "notes": ""}, "photo_traits_v13")
     assert r["side"] == "unclear" and r["side_raw"] == "ventral"
+
+
+def test_v14_quality_rule():
+    """v14: el modelo describe cover y focus; photo_quality la decide quality_from_cover."""
+    from sepia import photo_traits as pt
+    q = pt.quality_from_cover
+    assert q("none", "sharp") == "high" and q("few_grains", "sharp") == "high"
+    assert q("scattered_grains_or_small_objects", "sharp") == "medium"
+    assert q("large_part_covered", "sharp") == "low" and q("none", "blurry") == "low"
+    assert q("not_applicable", "not_applicable") == "not_applicable"
+    base = {"photo_index": 1, "n_cuttlebones_visible": 1, "side": "dorsal", "side_basis": "direct",
+            "side_evidence": "ridges", "erosion": "1", "cover": "scattered_grains_or_small_objects",
+            "focus": "sharp", "quality_evidence": "many grains on tip", "notes": ""}
+    pt.RecordPhotoTraitsV14(photos=[base])                       # el esquema acepta la respuesta
+    assert "photo_quality" not in pt.PhotoTraitsInRecordV14.model_fields
+    r, rules = pt.apply_rules(base, "photo_traits_v14")
+    assert r["photo_quality"] == "medium" and r["side"] == "dorsal"
+    r, _ = pt.apply_rules({**base, "n_cuttlebones_visible": 2}, "photo_traits_v14")
+    assert r["photo_quality"] == "not_applicable" and r["cover"] == "not_applicable"
+    r, _ = pt.apply_rules({**base, "erosion": "3"}, "photo_traits_v14")   # regla de erosion 3
+    assert r["side"] == "unclear" and r["side_raw"] == "dorsal"
+    v13 = sepia.load_prompt("photo_traits_v13")[0]
+    v14 = sepia.load_prompt("photo_traits_v14")[0]
+    assert v13.split('"erosion": how much')[0].replace(
+        '"side_evidence", "erosion", "cover", "focus" and "quality_evidence"',
+        '"erosion" and "photo_quality"') == v14.split('"erosion": how much')[0].replace(
+        '"side_evidence", "erosion", "cover", "focus" and "quality_evidence"',
+        '"erosion" and "photo_quality"')                         # el lado no cambia
+    assert "can still be \"high\"" not in v14 and "few_grains" in v14

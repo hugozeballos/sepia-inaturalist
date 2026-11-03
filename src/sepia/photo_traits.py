@@ -147,6 +147,54 @@ class RecordPhotoTraitsV11(BaseModel):
     photos: list[PhotoTraitsInRecordV11]
 
 
+# --- v14: calidad descrita por el modelo y decidida por una regla fija --------------------
+# El modelo no da la calidad: describe que tapa el hueso (cover) y el foco (focus), y el codigo
+# calcula photo_quality con quality_from_cover. Criterio de Hugo (3 nov), compatible con la guia
+# de Martin (high = sin arena ni algas encima); umbrales pendientes de confirmar con Martin.
+Cover = Literal["none", "few_grains", "scattered_grains_or_small_objects", "large_part_covered",
+                "not_applicable"]
+Focus = Literal["sharp", "blurry", "not_applicable"]
+
+
+class PhotoTraitsInRecordV14(BaseModel):
+    """Como v7, pero sin photo_quality: + cover, focus y quality_evidence."""
+    photo_index: int
+    n_cuttlebones_visible: int
+    side: Side
+    side_basis: SideBasis
+    side_evidence: str
+    erosion: Erosion
+    cover: Cover
+    focus: Focus
+    quality_evidence: str
+    notes: str
+
+
+class RecordPhotoTraitsV14(BaseModel):
+    photos: list[PhotoTraitsInRecordV14]
+
+
+def quality_from_cover(cover, focus) -> str:
+    """
+    Regla fija de calidad (v14-):
+    - low:    borrosa, o gran parte tapada (> ~60 %);
+    - medium: varios o muchos granos, mancha de arena u objetos que tapan parte (~5-60 %);
+    - high:   nada encima o solo un par de granos sueltos (>= ~95 % visible);
+    - not_applicable: sin descripcion (p. ej. no hay exactamente 1 hueso).
+    """
+    if cover == "not_applicable" or focus == "not_applicable" or cover is None or focus is None:
+        return "not_applicable"
+    if focus == "blurry" or cover == "large_part_covered":
+        return "low"
+    if cover == "scattered_grains_or_small_objects":
+        return "medium"
+    return "high"
+
+
+# Versiones donde la calidad la decide quality_from_cover
+QUALITY_RULE = {"photo_traits_v14"}
+
+
 # Esquema de respuesta por version (las que no estan usan el de su unidad).
 SCHEMA_BY_VERSION = {"photo_traits_v7": RecordPhotoTraitsV7,
                      "photo_traits_v8": RecordPhotoTraitsV7,
@@ -154,7 +202,8 @@ SCHEMA_BY_VERSION = {"photo_traits_v7": RecordPhotoTraitsV7,
                      "photo_traits_v10": RecordPhotoTraitsV10,
                      "photo_traits_v11": RecordPhotoTraitsV11,
                      "photo_traits_v12": RecordPhotoTraitsV7,
-                     "photo_traits_v13": RecordPhotoTraitsV7}
+                     "photo_traits_v13": RecordPhotoTraitsV7,
+                     "photo_traits_v14": RecordPhotoTraitsV14}
 
 
 # Unidad de consulta de cada version de prompt (la que no esta, es "photo").
@@ -162,12 +211,12 @@ PROMPT_UNIT = {"photo_traits_v5": "record", "photo_traits_v6": "record",
                "photo_traits_v7": "record", "photo_traits_v8": "record",
                "photo_traits_v9": "record", "photo_traits_v10": "record",
                "photo_traits_v11": "record", "photo_traits_v12": "record",
-               "photo_traits_v13": "record"}
+               "photo_traits_v13": "record", "photo_traits_v14": "record"}
 
 # Regla fija de v12: con erosion 3 (segun el modelo) el lado queda 'unclear'.
 # Simulada sobre v8 (2 nov): el acierto del lado cae con la erosion (88 % con 1, 76 % con 2,
 # 60 % con 3). El lado original del modelo se guarda en side_raw para medir el efecto.
-EROSION3_SIDE_UNCLEAR = {"photo_traits_v12", "photo_traits_v13"}
+EROSION3_SIDE_UNCLEAR = {"photo_traits_v12", "photo_traits_v13", "photo_traits_v14"}
 
 
 def apply_rules(result: dict, prompt_version: str | None = None) -> tuple[dict, list[str]]:
@@ -177,12 +226,14 @@ def apply_rules(result: dict, prompt_version: str | None = None) -> tuple[dict, 
     - lado, erosion y calidad solo con exactamente 1 hueso visible;
     - side_basis (si existe) coherente con el lado: lado 'unclear' -> base 'unclear';
       lado 'not_applicable' -> base 'not_applicable';
-    - con side_signs (v10-): side_rule = lado por la tabla fija (side_from_signs).
+    - con side_signs (v10-): side_rule = lado por la tabla fija (side_from_signs);
+    - v14: photo_quality = quality_from_cover(cover, focus).
     """
     r, applied = dict(result), []
     if r.get("n_cuttlebones_visible") != 1:
         keys = ("side", "erosion", "photo_quality") + tuple(
-            k for k in ("side_basis", "side_evidence") if k in r)
+            k for k in ("side_basis", "side_evidence", "cover", "focus", "quality_evidence")
+            if k in r)
         for k in keys:
             if r.get(k) != "not_applicable":
                 r[k] = "not_applicable"
@@ -190,6 +241,9 @@ def apply_rules(result: dict, prompt_version: str | None = None) -> tuple[dict, 
         if r.get("side_signs"):
             r["side_signs"] = []
             applied.append("n_visible!=1 -> side_signs=[]")
+    if prompt_version in QUALITY_RULE:
+        r["photo_quality"] = quality_from_cover(r.get("cover"), r.get("focus"))
+        applied.append(f"quality_rule -> photo_quality={r['photo_quality']}")
     if prompt_version in EROSION3_SIDE_UNCLEAR:
         r["side_raw"] = r.get("side")
         if r.get("erosion") == "3" and r.get("side") in ("dorsal", "ventral"):

@@ -38,7 +38,8 @@ from .review import review_table, _norm
 # 1 individuo anotado, como en review_table y evaluate_photo_traits)
 COMPARE_FIELDS = ["n_cuttlebones_visible", "side", "erosion", "photo_quality"]
 # Campos que solo se muestran (ayudan a entender por que decidio el modelo)
-INFO_FIELDS = ["side_basis", "side_signs", "side_evidence", "notes"]
+INFO_FIELDS = ["side_basis", "side_signs", "side_evidence", "cover", "focus",
+               "quality_evidence", "notes"]
 # Valores del modelo que no cuentan como desacuerdo: no aplica o se abstuvo
 NOT_COMPARED = {"", "not_applicable", "not_assessable", "unclear"}
 # Metricas que entran al puntaje para elegir las mejores versiones (promedio simple)
