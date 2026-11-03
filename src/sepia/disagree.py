@@ -139,6 +139,9 @@ def disagreement_table(cfg: Config, versions: list[str]) -> pd.DataFrame:
 # aparecen como columna extra en la matriz y cuentan como abstencion.
 CLASSES = {"side": ["dorsal", "ventral"], "erosion": ["1", "2", "3"],
            "photo_quality": ["high", "medium", "low"]}
+# Valores de la persona que se muestran como fila extra en la matriz, pero NO entran en las
+# metricas (la verdad de esas fotos es dudosa): side 'unclear'.
+HUMAN_EXTRA_ROWS = {"side": ["unclear"]}
 
 
 def classification_metrics(cfg: Config, versions: list[str],
@@ -146,7 +149,10 @@ def classification_metrics(cfg: Config, versions: list[str],
                            common: bool = True, save: bool = True, quiet: bool = False):
     """
     Por version y campo, contra la anotacion manual (fotos con 1 individuo anotado):
-    - n: fotos comparadas. La persona debe haber decidido una clase (side 'unclear' no entra).
+    - n: fotos comparadas. La persona debe haber decidido una clase.
+    - side 'unclear' de la persona: fila extra en la matriz, fuera de las metricas.
+      human_unclear_n = cuantas hay; human_unclear_model_unclear = en cuantas el modelo
+      tambien dijo 'unclear'.
     - coverage: fraccion de esas fotos donde el modelo decidio una clase (no 'unclear').
     - accuracy: aciertos / n (una abstencion cuenta como error).
     - accuracy_when_decided: aciertos / fotos donde el modelo decidio.
@@ -170,26 +176,35 @@ def classification_metrics(cfg: Config, versions: list[str],
         skipped = [v for v in versions if v not in vs]
         if skipped:
             say(f"{f}: sin resultados en {', '.join(skipped)} (se saltan)")
-        base = h.isin(classes)
+        rows_extra = HUMAN_EXTRA_ROWS.get(f, [])
+        base = h.isin(classes + rows_extra)                  # filas de la matriz
         if common:
             for v in vs:
                 m = t[f"{f}__{v}"].map(_norm)
                 base &= (m != "") & (m != "not_applicable")
         for v in vs:
             m = t[f"{f}__{v}"].map(_norm)
-            sub = base & (m != "") & (m != "not_applicable")
+            sub_all = base & (m != "") & (m != "not_applicable")
+            extra = sorted(set(m[sub_all]) - set(classes))    # p. ej. 'unclear' del modelo
+            cm_all = (pd.crosstab(h[sub_all], m[sub_all])
+                      .reindex(index=classes + rows_extra, columns=classes + extra, fill_value=0)
+                      .rename_axis(index="human", columns="model"))
+            mats[(v, f)] = cm_all
+            # metricas: solo fotos donde la persona decidio una clase
+            sub = sub_all & h.isin(classes)
             hh, mm = h[sub], m[sub]
             n = int(len(hh))
-            extra = sorted(set(mm) - set(classes))            # p. ej. 'unclear'
-            cm = (pd.crosstab(hh, mm).reindex(index=classes, columns=classes + extra, fill_value=0)
-                  .rename_axis(index="human", columns="model"))
-            mats[(v, f)] = cm
+            cm = cm_all.loc[classes]
             ok = hh == mm
             decided = mm.isin(classes)
             rec = {"prompt_version": v, "field": f, "n": n,
                    "coverage": float(decided.mean()) if n else None,
                    "accuracy": float(ok.mean()) if n else None,
                    "accuracy_when_decided": float(ok[decided].mean()) if decided.any() else None}
+            if rows_extra:
+                hu = sub_all & (h == "unclear")
+                rec["human_unclear_n"] = int(hu.sum())
+                rec["human_unclear_model_unclear"] = int((hu & (m == "unclear")).sum())
             f1s, recalls = [], []
             for c in classes:
                 tp = int(cm.loc[c, c])
@@ -211,8 +226,8 @@ def classification_metrics(cfg: Config, versions: list[str],
                     "eval_set": ("common:" if common else "own:") + ",".join(vs),
                     "eval_set_sha": ids_sha(t.loc[sub, "photo_id"].astype(int)),
                     "metrics": {**{k: rec[k] for k in rec if k not in ("prompt_version", "field")},
-                                "confusion": {r: {c: int(cm.loc[r, c]) for c in cm.columns}
-                                              for r in cm.index},
+                                "confusion": {r: {c: int(cm_all.loc[r, c]) for c in cm_all.columns}
+                                              for r in cm_all.index},
                                 "per_class": [x for x in per_class
                                               if x["prompt_version"] == v and x["field"] == f]}})
     summary = pd.DataFrame(summary)
@@ -260,7 +275,8 @@ def plot_confusion(mats: dict, field: str, versions: list[str] | None = None):
         for sp in ax.spines.values():
             sp.set_visible(False)
     axes[0][0].set_ylabel("human")
-    fig.suptitle(f"{field}: rows = human, columns = model (color = row fraction)", fontsize=11)
+    note = (" · human 'unclear' row: not in the metrics" if HUMAN_EXTRA_ROWS.get(field) else "")
+    fig.suptitle(f"{field}: rows = human, columns = model (color = row fraction){note}", fontsize=11)
     fig.tight_layout()
     return fig
 

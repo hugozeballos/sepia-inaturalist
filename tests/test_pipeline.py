@@ -965,3 +965,42 @@ def test_v14_quality_rule():
         '"side_evidence", "erosion", "cover", "focus" and "quality_evidence"',
         '"erosion" and "photo_quality"')                         # el lado no cambia
     assert "can still be \"high\"" not in v14 and "few_grains" in v14
+
+
+def test_classification_metrics_human_unclear(tmp_path):
+    """side 'unclear' de la persona: fila extra en la matriz, fuera de las metricas."""
+    import json
+    from sepia.disagree import classification_metrics
+    cfg = sepia.Config(base_dir=str(tmp_path))
+    p = sepia.paths(cfg)
+    photos = [(1, 11, 1), (2, 21, 1), (3, 31, 1)]
+    human = {11: "dorsal", 21: "ventral", 31: "unclear"}
+    model = {11: "dorsal", 21: "ventral", 31: "dorsal"}
+    with open(p["tables"] / "photos.jsonl", "w") as f:
+        for o, ph, pos in photos:
+            f.write(json.dumps({"observation_id": o, "photo_id": ph, "position": pos,
+                                "file_name": f"{o}_{ph}.jpg"}) + "\n")
+    with open(p["annotations"] / "manual_T.jsonl", "w") as f:
+        for o, ph, pos in photos:
+            f.write(json.dumps({"kind": "photo_info", "observation_id": o, "photo_id": ph,
+                                "n_in_photo": 1, "saved_at": "2026-11-01"}) + "\n")
+            f.write(json.dumps({"kind": "individual", "observation_id": o, "photo_id": ph,
+                                "individual": "a", "side": human[ph], "erosion": 1,
+                                "photo_quality": "high", "saved_at": "2026-11-01"}) + "\n")
+    out = p["base"] / "outputs"
+    out.mkdir(exist_ok=True)
+    with open(out / "photo_traits_gemini_gemini-3.5-flash-lite_photo_traits_v8.jsonl", "w") as f:
+        for o, ph, pos in photos:
+            f.write(json.dumps({"observation_id": o, "photo_id": ph, "position": pos, "error": None,
+                                "saved_at": "2026-11-02", "prompt_sha": "x",
+                                "result": {"n_cuttlebones_visible": 1, "side": model[ph],
+                                           "erosion": "1", "photo_quality": "high"}}) + "\n")
+    s, pc, m = classification_metrics(cfg, ["photo_traits_v8"], fields=("side",),
+                                      save=False, quiet=True)
+    cm = m[("photo_traits_v8", "side")]
+    assert list(cm.index) == ["dorsal", "ventral", "unclear"] and cm.loc["unclear", "dorsal"] == 1
+    r = s.iloc[0]
+    assert r["n"] == 2 and r["accuracy"] == 1.0 and r["human_unclear_n"] == 1
+    assert r["human_unclear_model_unclear"] == 0
+    d = pc[pc["class"] == "dorsal"].iloc[0]
+    assert d["precision"] == 1.0 and d["predicted"] == 1        # la fila unclear no cuenta
