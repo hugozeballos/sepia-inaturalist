@@ -920,3 +920,19 @@ def test_v12_erosion_rule():
     assert "A wrong side is worse" in v12 and "A wrong side is worse" not in v8
     assert v12.replace(v8, "") != v12 or len(v12) > len(v8)
     assert pt.SCHEMA_BY_VERSION["photo_traits_v12"] is pt.RecordPhotoTraitsV7
+
+
+def test_v13_side_text():
+    """v13 = v12 sin 'chalky/porous' como señal ventral y con dorsal 'smoother, harder'."""
+    from sepia import photo_traits as pt
+    v12 = sepia.load_prompt("photo_traits_v12")[0]
+    v13 = sepia.load_prompt("photo_traits_v13")[0]
+    assert "chalky and porous-looking" in v12 and "chalky and porous-looking" not in v13
+    assert '"porous chalky surface"' not in v13
+    assert "smoother, harder" in v13
+    assert pt.SCHEMA_BY_VERSION["photo_traits_v13"] is pt.RecordPhotoTraitsV7
+    assert pt.PROMPT_UNIT["photo_traits_v13"] == "record"
+    r, _ = pt.apply_rules({"n_cuttlebones_visible": 1, "side": "ventral", "side_basis": "direct",
+                           "side_evidence": "rim", "erosion": "3", "photo_quality": "high",
+                           "notes": ""}, "photo_traits_v13")
+    assert r["side"] == "unclear" and r["side_raw"] == "ventral"

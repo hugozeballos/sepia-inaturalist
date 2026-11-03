@@ -153,19 +153,21 @@ SCHEMA_BY_VERSION = {"photo_traits_v7": RecordPhotoTraitsV7,
                      "photo_traits_v9": RecordPhotoTraitsV9,
                      "photo_traits_v10": RecordPhotoTraitsV10,
                      "photo_traits_v11": RecordPhotoTraitsV11,
-                     "photo_traits_v12": RecordPhotoTraitsV7}
+                     "photo_traits_v12": RecordPhotoTraitsV7,
+                     "photo_traits_v13": RecordPhotoTraitsV7}
 
 
 # Unidad de consulta de cada version de prompt (la que no esta, es "photo").
 PROMPT_UNIT = {"photo_traits_v5": "record", "photo_traits_v6": "record",
                "photo_traits_v7": "record", "photo_traits_v8": "record",
                "photo_traits_v9": "record", "photo_traits_v10": "record",
-               "photo_traits_v11": "record", "photo_traits_v12": "record"}
+               "photo_traits_v11": "record", "photo_traits_v12": "record",
+               "photo_traits_v13": "record"}
 
 # Regla fija de v12: con erosion 3 (segun el modelo) el lado queda 'unclear'.
 # Simulada sobre v8 (2 nov): el acierto del lado cae con la erosion (88 % con 1, 76 % con 2,
 # 60 % con 3). El lado original del modelo se guarda en side_raw para medir el efecto.
-EROSION3_SIDE_UNCLEAR = {"photo_traits_v12"}
+EROSION3_SIDE_UNCLEAR = {"photo_traits_v12", "photo_traits_v13"}
 
 
 def apply_rules(result: dict, prompt_version: str | None = None) -> tuple[dict, list[str]]:
