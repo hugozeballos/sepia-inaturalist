@@ -6,6 +6,8 @@ del modelo) y dejar constancia de cada decision.
 Pasos (Colab):
     from sepia.disagree import rank_versions, DisagreementApp, verdict_summary
     table, top = rank_versions(cfg)                  # 1. metricas de todas las versiones, top 5
+    summary, per_class, mats = classification_metrics(cfg, top)   # matrices, precision, recall, F1
+    plot_confusion(mats, "side")
     DisagreementApp(cfg, top, annotator="HZ").show() # 2. revisar todas las fotos anotadas
     verdict_summary(cfg, "HZ")                       # 3. resumen de veredictos
 
@@ -28,7 +30,7 @@ from pathlib import Path
 import pandas as pd
 
 from .config import Config
-from .io import paths, read_jsonl, append_jsonl
+from .io import paths, read_jsonl, append_jsonl, save_metrics, ids_sha
 from .photo_traits import load_photo_traits, compare_photo_traits
 from .review import review_table, _norm
 
@@ -126,6 +128,140 @@ def disagreement_table(cfg: Config, versions: list[str]) -> pd.DataFrame:
         t[f"n_disagree__{f}"] = n_dis
     t["n_disagree_max"] = t[[f"n_disagree__{f}" for f in COMPARE_FIELDS]].max(axis=1)
     return t.sort_values(["observation_id", "position"]).reset_index(drop=True)
+
+
+# --------------------------------------------------------------------------
+# 2b. Metricas clasicas: matriz de confusion, exactitud, precision, recall, F1
+# --------------------------------------------------------------------------
+
+# Clases de cada campo (lo que anota la persona). Otros valores del modelo, como 'unclear',
+# aparecen como columna extra en la matriz y cuentan como abstencion.
+CLASSES = {"side": ["dorsal", "ventral"], "erosion": ["1", "2", "3"],
+           "photo_quality": ["high", "medium", "low"]}
+
+
+def classification_metrics(cfg: Config, versions: list[str],
+                           fields=("side", "erosion", "photo_quality"),
+                           common: bool = True, save: bool = True, quiet: bool = False):
+    """
+    Por version y campo, contra la anotacion manual (fotos con 1 individuo anotado):
+    - n: fotos comparadas. La persona debe haber decidido una clase (side 'unclear' no entra).
+    - coverage: fraccion de esas fotos donde el modelo decidio una clase (no 'unclear').
+    - accuracy: aciertos / n (una abstencion cuenta como error).
+    - accuracy_when_decided: aciertos / fotos donde el modelo decidio.
+    - por clase: precision = aciertos / veces que el modelo dijo esa clase;
+      recall = aciertos / veces que la persona anoto esa clase (abstencion = no acierto);
+      F1 = media armonica de ambas; support = veces que la persona anoto esa clase.
+    - macro_f1 y balanced_accuracy (= promedio de recall): no dependen de cuantas fotos
+      hay de cada clase.
+    common=True: todas las versiones se evaluan sobre las mismas fotos (por campo).
+    Las versiones sin ese campo (p. ej. v1 sin calidad) se saltan para ese campo.
+    Devuelve (resumen, tabla por clase, {(version, campo): matriz}).
+    save=True agrega una linea por version a outputs/metrics/photo_traits_classification_metrics.jsonl.
+    """
+    say = (lambda *a: None) if quiet else print
+    t = disagreement_table(cfg, versions)
+    summary, per_class, mats = [], [], {}
+    for f in fields:
+        classes = CLASSES[f]
+        h = t[f"{f}__human"].map(_norm) if f"{f}__human" in t else pd.Series("", index=t.index)
+        vs = [v for v in versions if f"{f}__{v}" in t]
+        skipped = [v for v in versions if v not in vs]
+        if skipped:
+            say(f"{f}: sin resultados en {', '.join(skipped)} (se saltan)")
+        base = h.isin(classes)
+        if common:
+            for v in vs:
+                m = t[f"{f}__{v}"].map(_norm)
+                base &= (m != "") & (m != "not_applicable")
+        for v in vs:
+            m = t[f"{f}__{v}"].map(_norm)
+            sub = base & (m != "") & (m != "not_applicable")
+            hh, mm = h[sub], m[sub]
+            n = int(len(hh))
+            extra = sorted(set(mm) - set(classes))            # p. ej. 'unclear'
+            cm = (pd.crosstab(hh, mm).reindex(index=classes, columns=classes + extra, fill_value=0)
+                  .rename_axis(index="human", columns="model"))
+            mats[(v, f)] = cm
+            ok = hh == mm
+            decided = mm.isin(classes)
+            rec = {"prompt_version": v, "field": f, "n": n,
+                   "coverage": float(decided.mean()) if n else None,
+                   "accuracy": float(ok.mean()) if n else None,
+                   "accuracy_when_decided": float(ok[decided].mean()) if decided.any() else None}
+            f1s, recalls = [], []
+            for c in classes:
+                tp = int(cm.loc[c, c])
+                pred, sup = int(cm[c].sum()), int(cm.loc[c].sum())
+                prec = tp / pred if pred else None
+                recl = tp / sup if sup else None
+                f1 = (2 * prec * recl / (prec + recl)) if prec and recl else (0.0 if sup else None)
+                per_class.append({"prompt_version": v, "field": f, "class": c, "precision": prec,
+                                  "recall": recl, "f1": f1, "support": sup, "predicted": pred})
+                if sup:
+                    f1s.append(f1)
+                    recalls.append(recl)
+            rec["macro_f1"] = sum(f1s) / len(f1s) if f1s else None
+            rec["balanced_accuracy"] = sum(recalls) / len(recalls) if recalls else None
+            summary.append(rec)
+            if save and n:
+                save_metrics(cfg, "photo_traits_classification", {
+                    "prompt_version": v, "field": f,
+                    "eval_set": ("common:" if common else "own:") + ",".join(vs),
+                    "eval_set_sha": ids_sha(t.loc[sub, "photo_id"].astype(int)),
+                    "metrics": {**{k: rec[k] for k in rec if k not in ("prompt_version", "field")},
+                                "confusion": {r: {c: int(cm.loc[r, c]) for c in cm.columns}
+                                              for r in cm.index},
+                                "per_class": [x for x in per_class
+                                              if x["prompt_version"] == v and x["field"] == f]}})
+    summary = pd.DataFrame(summary)
+    per_class = pd.DataFrame(per_class)
+    if not quiet and len(summary):
+        for f in fields:
+            s = summary[summary["field"] == f].set_index("prompt_version").drop(columns="field")
+            if s.empty:
+                continue
+            print(f"\n=== {f} ===")
+            print(s.round(2).to_string())
+            pc = per_class[per_class["field"] == f].pivot(index="prompt_version", columns="class",
+                                                           values=["precision", "recall", "f1"])
+            pc = pc.reindex(index=s.index).reindex(columns=CLASSES[f], level=1)
+            print(pc.round(2).to_string())
+            for v in s.index:
+                print(f"\n{v} · confusion (rows = human, columns = model)")
+                print(mats[(v, f)].to_string())
+    return summary, per_class, mats
+
+
+def plot_confusion(mats: dict, field: str, versions: list[str] | None = None):
+    """
+    Matrices de confusion de un campo, una por version, lado a lado.
+    Numero = fotos; color = fraccion de la fila (recall de esa clase anotada).
+    """
+    import matplotlib.pyplot as plt
+    vs = versions or [v for (v, f) in mats if f == field]
+    if not vs:
+        print(f"Sin matrices para {field}")
+        return None
+    fig, axes = plt.subplots(1, len(vs), figsize=(3.2 * len(vs), 3.2), squeeze=False)
+    for ax, v in zip(axes[0], vs):
+        cm = mats[(v, field)]
+        frac = cm.div(cm.sum(axis=1).replace(0, 1), axis=0)
+        ax.imshow(frac.values, cmap="Blues", vmin=0, vmax=1)     # un solo tono: claro -> oscuro
+        for i in range(cm.shape[0]):
+            for j in range(cm.shape[1]):
+                ax.text(j, i, int(cm.iat[i, j]), ha="center", va="center", fontsize=11,
+                        color="white" if frac.iat[i, j] > 0.55 else "#222")
+        ax.set_xticks(range(cm.shape[1]), cm.columns, rotation=45, ha="right")
+        ax.set_yticks(range(cm.shape[0]), cm.index)
+        ax.set_xlabel("model")
+        ax.set_title(v.replace("photo_traits_", ""), fontsize=11)
+        for sp in ax.spines.values():
+            sp.set_visible(False)
+    axes[0][0].set_ylabel("human")
+    fig.suptitle(f"{field}: rows = human, columns = model (color = row fraction)", fontsize=11)
+    fig.tight_layout()
+    return fig
 
 
 # --------------------------------------------------------------------------
