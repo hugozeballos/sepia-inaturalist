@@ -49,6 +49,21 @@ PHOTO_CHECKED = "_photo"      # linea de verdicts que marca la foto como revisad
 ORDERS = ["record", "most_disagreement"]
 # Filtro extra: fotos donde 'Individuals in photo' no coincide con los individuos anotados
 COUNT_MISMATCH = "my_count_mismatch"
+# Vistas (para mostrar a Martin). En estas vistas 'unclear' SIEMPRE cuenta como diferencia.
+VIEWS = ["all", "any_model_differs", "all_models_agree_differ", "ask_martin"]
+# Valores que no se pueden comparar (no hay valor o no aplica)
+NO_VALUE = {"", "not_applicable"}
+# Notas que mencionan a Martin (sin mayusculas ni tildes): martin, martín, marthin
+import re as _re
+import unicodedata as _ud
+_MARTIN = _re.compile(r"marth?in")
+
+
+def mentions_martin(text) -> bool:
+    t = _ud.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode().lower()
+    return bool(_MARTIN.search(t))
+
+
 VERDICTS = [("—", "none"), ("My error", "human_error"), ("Model error", "model_error"),
             ("Unsure / ask Martin", "ask_martin")]
 
@@ -105,6 +120,10 @@ def disagreement_table(cfg: Config, versions: list[str]) -> pd.DataFrame:
     n_disagree_max = maximo entre campos (para ordenar).
     n_individuals__human = individuos anotados en la foto; count_mismatch = ese numero no
     coincide con 'Individuals in photo' (incoherencia de la anotacion, a revisar).
+    Con 'unclear' contando como diferencia (vistas para Martin):
+      n_differ__<campo>       versiones con valor que difieren de la persona
+      all_agree_differ__<campo>  todas las versiones tienen valor, el mismo, y no es el de la persona
+    notes_all__human = notas de todos los individuos de la foto; ask_martin = alguna menciona a Martin.
     """
     from .annotate import load_events
     t = review_table(cfg, versions)
@@ -127,7 +146,30 @@ def disagreement_table(cfg: Config, versions: list[str]) -> pd.DataFrame:
             n_dis += (ok & (m != h)).astype(int)
         t[f"n_models__{f}"] = n_mod
         t[f"n_disagree__{f}"] = n_dis
+        # 'unclear' cuenta: basta con que las dos partes tengan un valor
+        vals = [t[f"{f}__{v}"].map(_norm) if f"{f}__{v}" in t else pd.Series("", index=t.index)
+                for v in versions]
+        has_h = h != ""
+        t[f"n_differ__{f}"] = sum(((has_h & ~m.isin(NO_VALUE) & (m != h)).astype(int)
+                                   for m in vals), pd.Series(0, index=t.index))
+        if vals:
+            first = vals[0]
+            same = pd.Series(True, index=t.index)
+            for m in vals:
+                same &= ~m.isin(NO_VALUE) & (m == first)
+            t[f"all_agree_differ__{f}"] = same & has_h & (first != h)
+        else:
+            t[f"all_agree_differ__{f}"] = False
     t["n_disagree_max"] = t[[f"n_disagree__{f}" for f in COMPARE_FIELDS]].max(axis=1)
+    # notas de todos los individuos de la foto (no solo fotos con 1 individuo)
+    if len(ind) and "notes" in ind:
+        notes = (ind.dropna(subset=["notes"]).loc[lambda d: d["notes"].astype(str).str.strip() != ""]
+                 .sort_values("individual").groupby("photo_id")
+                 .apply(lambda g: " | ".join(f"{a}: {n}" for a, n in zip(g["individual"], g["notes"]))))
+        t["notes_all__human"] = t["photo_id"].map(notes).fillna("")
+    else:
+        t["notes_all__human"] = ""
+    t["ask_martin"] = t["notes_all__human"].map(mentions_martin)
     return t.sort_values(["observation_id", "position"]).reset_index(drop=True)
 
 
@@ -249,6 +291,36 @@ def classification_metrics(cfg: Config, versions: list[str],
     return summary, per_class, mats
 
 
+def count_agreement(cfg: Config, versions: list[str], quiet: bool = False) -> pd.DataFrame:
+    """
+    Huesos visibles por foto: modelo vs 'Individuals in photo' de la persona, sobre las fotos
+    anotadas con resultado en todas las versiones. Devuelve una fila por version
+    (n, acuerdo, modelo cuenta de mas, modelo cuenta de menos) e imprime la tabla cruzada.
+    """
+    t = disagreement_table(cfg, versions)
+    h = pd.to_numeric(t["n_cuttlebones_visible__human"], errors="coerce")
+    base = h.notna()
+    cols = [f"n_cuttlebones_visible__{v}" for v in versions if f"n_cuttlebones_visible__{v}" in t]
+    for c in cols:
+        base &= pd.to_numeric(t[c], errors="coerce").notna()
+    rows = []
+    for c in cols:
+        v = c.split("__", 1)[1]
+        m = pd.to_numeric(t.loc[base, c], errors="coerce")
+        hh = h[base]
+        rows.append({"prompt_version": v, "n": int(len(hh)),
+                     "agreement": float((m == hh).mean()) if len(hh) else None,
+                     "model_more": int((m > hh).sum()), "model_fewer": int((m < hh).sum())})
+        if not quiet:
+            cap = lambda x: x.clip(upper=5).astype(int).astype(str).replace("5", "5+")
+            print(f"\n{v} · bones visible (rows = human, columns = model)")
+            print(pd.crosstab(cap(hh).rename("human"), cap(m).rename("model")).to_string())
+    out = pd.DataFrame(rows).set_index("prompt_version")
+    if not quiet:
+        print("\n" + out.round(2).to_string())
+    return out
+
+
 def plot_confusion(mats: dict, field: str, versions: list[str] | None = None):
     """
     Matrices de confusion de un campo, una por version, lado a lado.
@@ -340,10 +412,15 @@ class DisagreementApp:
 
     def __init__(self, cfg: Config, versions: list[str], annotator: str = "HZ",
                  min_disagree: int = 0, field: str = "any", hide_reviewed: bool = False,
-                 order: str = "record",
+                 order: str = "record", view: str = "all", read_only: bool = False,
                  image_width: str = "560px", thumb_px: str = "130px"):
+        """
+        view: all / any_model_differs / all_models_agree_differ / ask_martin (en estas vistas
+        'unclear' cuenta como diferencia). read_only=True: sin veredictos ni botones de guardar.
+        """
         import ipywidgets as w
         self.w, self.cfg, self.versions, self.annotator = w, cfg, versions, annotator
+        self.read_only = read_only
         base = paths(cfg)["base"] / "photos"
         self.big_dirs = [base / "1024px", base / "original"]
         self.thumb_dirs = [base / "512px"] + self.big_dirs
@@ -363,7 +440,9 @@ class DisagreementApp:
                                    description=f"Models ≠ me (of {n})",
                                    style={"description_width": "initial"})
         self.hide = w.Checkbox(value=hide_reviewed, description="Hide reviewed", indent=False)
-        for c in (self.field, self.order, self.min_dis, self.hide):
+        self.view = w.Dropdown(options=VIEWS, value=view, description="View",
+                               layout=w.Layout(width="320px"))
+        for c in (self.view, self.field, self.order, self.min_dis, self.hide):
             c.observe(lambda _: self._apply_filter(), names="value")
         prev_b, next_b = w.Button(description="◀ Prev"), w.Button(description="Next ▶")
         prev_b.on_click(lambda _: self._go(self.i - 1))
@@ -390,9 +469,14 @@ class DisagreementApp:
 
         left = w.VBox([self.image_label, self.image, self.strip],
                       layout=w.Layout(width=image_width))
-        right = w.VBox([self.table, self.record, self.verdict_box,
-                        w.HBox([save_b, save_next_b]), self.msg])
-        self.box = w.VBox([w.HBox([self.field, self.order, self.min_dis, self.hide]),
+        if read_only:
+            right = w.VBox([self.table, self.record])
+            filters = w.HBox([self.view, self.field, self.order])
+        else:
+            right = w.VBox([self.table, self.record, self.verdict_box,
+                            w.HBox([save_b, save_next_b]), self.msg])
+            filters = w.HBox([self.view, self.field, self.order, self.min_dis, self.hide])
+        self.box = w.VBox([filters,
                            w.HBox([prev_b, next_b, self.jump, go_b]),
                            self.header,
                            w.HBox([left, right], layout=w.Layout(align_items="flex-start"))])
@@ -410,6 +494,19 @@ class DisagreementApp:
         rows = self.full
         if f == COUNT_MISMATCH:
             rows = rows[rows["count_mismatch"]]
+        view = self.view.value
+        if view == "any_model_differs":
+            keep = pd.Series(False, index=rows.index)
+            for c in cols:
+                keep |= rows[f"n_differ__{c}"] > 0
+            rows = rows[keep]
+        elif view == "all_models_agree_differ":
+            keep = pd.Series(False, index=rows.index)
+            for c in cols:
+                keep |= rows[f"all_agree_differ__{c}"]
+            rows = rows[keep]
+        elif view == "ask_martin":
+            rows = rows[rows["ask_martin"]]
         if self.min_dis.value > 0:          # 0 = todas las fotos anotadas
             keep = pd.Series(False, index=rows.index)
             for c in cols:
@@ -419,7 +516,7 @@ class DisagreementApp:
             key = f"n_disagree__{f}" if f in COMPARE_FIELDS else "n_disagree_max"
             rows = rows.sort_values([key, "observation_id", "position"],
                                     ascending=[False, True, True])
-        if self.hide.value:
+        if self.hide.value and not self.read_only:
             v = load_verdicts(self.cfg, self.annotator)
             if len(v):
                 done = v[v["field"] == PHOTO_CHECKED]["photo_id"].astype(int)
@@ -477,11 +574,17 @@ class DisagreementApp:
                 f"⚠ My annotation: 'Individuals in photo' = "
                 f"{_norm(r['n_cuttlebones_visible__human'])}, but "
                 f"{int(r['n_individuals__human'])} individual(s) annotated in this photo</div>")
+        if r.get("notes_all__human"):
+            bg = "#d1ecf1" if r["ask_martin"] else "#eee"
+            self.header.value += (
+                f"<div style='background:{bg};color:#000;padding:4px 8px;margin:4px 0'>"
+                f"<b>My notes:</b> {html.escape(r['notes_all__human'])}</div>")
         self._show_big(r)
         self._render_strip(r)
         self._render_table(r)
         self._render_record(r)
-        self._render_verdicts(r)
+        if not self.read_only:
+            self._render_verdicts(r)
 
     def _show_big(self, photo_row, reviewed_row=None):
         self.image.value = self._read(photo_row["file_name"], self.big_dirs)
@@ -536,7 +639,9 @@ class DisagreementApp:
                 if field in INFO_FIELDS:
                     st += ";font-size:85%;max-width:180px"
                 elif c != "human" and human and v not in NOT_COMPARED and v != human:
-                    st += ";background:#f8d7da;color:#000"
+                    st += ";background:#f8d7da;color:#000"           # decidio distinto
+                elif c != "human" and human and v in ("unclear", "not_assessable") and v != human:
+                    st += ";background:#d6d6d6;color:#000"           # no decidio (cuenta igual)
                 elif c == "human":
                     st += ";font-weight:bold"
                 if c == "human" and several:
@@ -545,11 +650,15 @@ class DisagreementApp:
                 cells += f"<td style='{st}'>{html.escape(v)}</td>"
             n = ""
             if field in COMPARE_FIELDS:
-                n = f" <small>({int(r[f'n_disagree__{field}'])}/{int(r[f'n_models__{field}'])})</small>"
+                unc = int(r[f"n_differ__{field}"]) - int(r[f"n_disagree__{field}"])
+                extra = f" +{unc} unclear" if unc > 0 else ""
+                n = (f" <small>({int(r[f'n_disagree__{field}'])}/{int(r[f'n_models__{field}'])}"
+                     f"{extra})</small>")
             body += f"<tr><th style='text-align:right;padding:3px 7px'>{field}{n}</th>{cells}</tr>"
-        legend = ("<small>red = differs from me · (x/y) = models that differ / models that "
-                  "decided · unclear and not_applicable are not counted · orange = several "
-                  "individuals in the photo: shown, not compared</small>")
+        legend = ("<small>red = decided something different from me · grey = did not decide "
+                  "(unclear), counts as a difference in the views · (x/y +z unclear) = models "
+                  "that decided differently / models that decided, + models unclear · orange = "
+                  "several individuals in the photo: shown, not compared</small>")
         self.table.value = (f"<table style='border-collapse:collapse'><tr><th></th>{head}</tr>"
                             f"{body}</table>{legend}")
 

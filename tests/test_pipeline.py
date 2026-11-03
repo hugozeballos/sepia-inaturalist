@@ -1004,3 +1004,44 @@ def test_classification_metrics_human_unclear(tmp_path):
     assert r["human_unclear_model_unclear"] == 0
     d = pc[pc["class"] == "dorsal"].iloc[0]
     assert d["precision"] == 1.0 and d["predicted"] == 1        # la fila unclear no cuenta
+
+
+def test_martin_views(tmp_path):
+    """Vistas para Martin: unclear cuenta como diferencia; notas que mencionan a Martin."""
+    import json
+    from sepia.disagree import disagreement_table, mentions_martin
+    assert mentions_martin("Preguntar a Martín") and mentions_martin("hablar con MARTHIN")
+    assert not mentions_martin("martes") and not mentions_martin(None)
+    cfg = sepia.Config(base_dir=str(tmp_path))
+    p = sepia.paths(cfg)
+    photos = [(1, 11, 1), (2, 21, 1), (3, 31, 1)]
+    human = {11: ("dorsal", ""), 21: ("unclear", "preguntar a martin"), 31: ("ventral", "")}
+    model = {"v8": {11: "ventral", 21: "dorsal", 31: "unclear"},
+             "v9": {11: "ventral", 21: "dorsal", 31: "ventral"}}
+    with open(p["tables"] / "photos.jsonl", "w") as f:
+        for o, ph, pos in photos:
+            f.write(json.dumps({"observation_id": o, "photo_id": ph, "position": pos,
+                                "file_name": f"{o}_{ph}.jpg"}) + "\n")
+    with open(p["annotations"] / "manual_T.jsonl", "w") as f:
+        for o, ph, pos in photos:
+            f.write(json.dumps({"kind": "photo_info", "observation_id": o, "photo_id": ph,
+                                "n_in_photo": 1, "saved_at": "2026-11-01"}) + "\n")
+            f.write(json.dumps({"kind": "individual", "observation_id": o, "photo_id": ph,
+                                "individual": "a", "side": human[ph][0], "erosion": 1,
+                                "photo_quality": "high", "notes": human[ph][1],
+                                "saved_at": "2026-11-01"}) + "\n")
+    out = p["base"] / "outputs"
+    out.mkdir(exist_ok=True)
+    for v, sides in model.items():
+        with open(out / f"photo_traits_gemini_gemini-3.5-flash-lite_photo_traits_{v}.jsonl", "w") as f:
+            for o, ph, pos in photos:
+                f.write(json.dumps({"observation_id": o, "photo_id": ph, "position": pos,
+                                    "error": None, "saved_at": "2026-11-02", "prompt_sha": "x",
+                                    "result": {"n_cuttlebones_visible": 1, "side": sides[ph],
+                                               "erosion": "1", "photo_quality": "high"}}) + "\n")
+    t = disagreement_table(cfg, ["photo_traits_v8", "photo_traits_v9"]).set_index("photo_id")
+    assert t.loc[11, "all_agree_differ__side"] and t.loc[11, "n_differ__side"] == 2
+    assert t.loc[21, "all_agree_differ__side"]             # persona unclear, los dos dorsal
+    assert t.loc[31, "n_differ__side"] == 1 and t.loc[31, "n_disagree__side"] == 0   # unclear cuenta
+    assert not t.loc[31, "all_agree_differ__side"]
+    assert list(t.index[t["ask_martin"]]) == [21]
