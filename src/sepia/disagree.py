@@ -44,6 +44,8 @@ SCORE_METRICS = ["count_agreement", "side_agreement", "erosion_agreement",
                  "photo_quality_agreement"]
 PHOTO_CHECKED = "_photo"      # linea de verdicts que marca la foto como revisada
 ORDERS = ["record", "most_disagreement"]
+# Filtro extra: fotos donde 'Individuals in photo' no coincide con los individuos anotados
+COUNT_MISMATCH = "my_count_mismatch"
 VERDICTS = [("—", "none"), ("My error", "human_error"), ("Model error", "model_error"),
             ("Unsure / ask Martin", "ask_martin")]
 
@@ -98,9 +100,16 @@ def disagreement_table(cfg: Config, versions: list[str]) -> pd.DataFrame:
       n_models__<campo>    versiones con un valor comparable (no vacio, no unclear/not_applicable)
       n_disagree__<campo>  de esas, cuantas difieren de la persona
     n_disagree_max = maximo entre campos (para ordenar).
+    n_individuals__human = individuos anotados en la foto; count_mismatch = ese numero no
+    coincide con 'Individuals in photo' (incoherencia de la anotacion, a revisar).
     """
+    from .annotate import load_events
     t = review_table(cfg, versions)
     t = t[t["n_cuttlebones_visible__human"].notna()].copy()    # solo fotos anotadas
+    ind = load_events(cfg)["individual"]
+    n_ind = ind.groupby("photo_id").size() if len(ind) else pd.Series(dtype="int64")
+    t["n_individuals__human"] = t["photo_id"].map(n_ind).fillna(0).astype(int)
+    t["count_mismatch"] = t["n_individuals__human"] != t["n_cuttlebones_visible__human"]
     for f in COMPARE_FIELDS:
         h = t[f"{f}__human"].map(_norm) if f"{f}__human" in t else pd.Series("", index=t.index)
         n_mod = pd.Series(0, index=t.index)
@@ -193,7 +202,7 @@ class DisagreementApp:
         self._cache = {}
 
         n = len(versions)
-        self.field = w.Dropdown(options=["any"] + COMPARE_FIELDS, value=field,
+        self.field = w.Dropdown(options=["any"] + COMPARE_FIELDS + [COUNT_MISMATCH], value=field,
                                 description="Field", layout=w.Layout(width="260px"))
         self.order = w.Dropdown(options=ORDERS, value=order, description="Order",
                                 layout=w.Layout(width="260px"))
@@ -244,15 +253,17 @@ class DisagreementApp:
 
     def _apply_filter(self):
         f = self.field.value
-        cols = COMPARE_FIELDS if f == "any" else [f]
+        cols = COMPARE_FIELDS if f in ("any", COUNT_MISMATCH) else [f]
         rows = self.full
+        if f == COUNT_MISMATCH:
+            rows = rows[rows["count_mismatch"]]
         if self.min_dis.value > 0:          # 0 = todas las fotos anotadas
             keep = pd.Series(False, index=rows.index)
             for c in cols:
                 keep |= rows[f"n_disagree__{c}"] >= self.min_dis.value
             rows = rows[keep]
         if self.order.value == "most_disagreement":
-            key = "n_disagree_max" if f == "any" else f"n_disagree__{f}"
+            key = f"n_disagree__{f}" if f in COMPARE_FIELDS else "n_disagree_max"
             rows = rows.sort_values([key, "observation_id", "position"],
                                     ascending=[False, True, True])
         if self.hide.value:
@@ -307,6 +318,12 @@ class DisagreementApp:
         self.header.value = (f"<h3 style='margin:4px 0'>{self.i + 1}/{len(self.rows)} · "
                              f"<a href='{url}' target='_blank'>{oid}</a> · photo "
                              f"{int(r['position'])} (id {int(r['photo_id'])})</h3>")
+        if r["count_mismatch"]:
+            self.header.value += (
+                "<div style='background:#fff3cd;color:#000;padding:4px 8px;margin:4px 0'>"
+                f"⚠ My annotation: 'Individuals in photo' = "
+                f"{_norm(r['n_cuttlebones_visible__human'])}, but "
+                f"{int(r['n_individuals__human'])} individual(s) annotated in this photo</div>")
         self._show_big(r)
         self._render_strip(r)
         self._render_table(r)
@@ -353,6 +370,13 @@ class DisagreementApp:
                 continue
             vals = [_norm(r.get(f"{field}__{c}")) for c in cols]
             human = vals[-1]
+            several = ""
+            if field in ("side", "erosion", "photo_quality", "notes") and not human:
+                # con varios individuos no se compara, pero se muestran sus valores
+                mine = self.individuals[self.individuals["photo_id"] == int(r["photo_id"])]
+                if len(mine) > 1 and field in mine:
+                    several = " · ".join(f"{i['individual']}: {_norm(i.get(field))}"
+                                         for _, i in mine.sort_values("individual").iterrows())
             cells = ""
             for c, v in zip(cols, vals):
                 st = "padding:3px 7px;vertical-align:top"
@@ -362,14 +386,17 @@ class DisagreementApp:
                     st += ";background:#f8d7da;color:#000"
                 elif c == "human":
                     st += ";font-weight:bold"
+                if c == "human" and several:
+                    st += ";color:#d97706;font-style:italic"
+                    v = several
                 cells += f"<td style='{st}'>{html.escape(v)}</td>"
             n = ""
             if field in COMPARE_FIELDS:
                 n = f" <small>({int(r[f'n_disagree__{field}'])}/{int(r[f'n_models__{field}'])})</small>"
             body += f"<tr><th style='text-align:right;padding:3px 7px'>{field}{n}</th>{cells}</tr>"
         legend = ("<small>red = differs from me · (x/y) = models that differ / models that "
-                  "decided · unclear and not_applicable are not counted · my side/erosion/quality "
-                  "only for photos with 1 individual</small>")
+                  "decided · unclear and not_applicable are not counted · orange = several "
+                  "individuals in the photo: shown, not compared</small>")
         self.table.value = (f"<table style='border-collapse:collapse'><tr><th></th>{head}</tr>"
                             f"{body}</table>{legend}")
 
