@@ -96,6 +96,18 @@ def test_download_by_ids(api, cfg):
     assert sepia.download_by_ids(cfg, [1, 2, 99, 5]) == 3
 
 
+def _excel_rows(path):
+    """Filas del Excel: identification + traceability (mismas filas, mismo orden), unidas."""
+    wb = openpyxl.load_workbook(path)
+    out = []
+    for name in ("identification", "traceability"):
+        ws = wb[name]
+        hdr = [c.value for c in ws[1]]
+        rows = [dict(zip(hdr, r)) for r in ws.iter_rows(min_row=2, values_only=True)]
+        out = rows if not out else [{**a, **b} for a, b in zip(out, rows)]
+    return wb, out
+
+
 def test_excel(api, cfg):
     sepia.download_observations(cfg)
     sepia.build_tables(cfg)
@@ -117,10 +129,7 @@ def test_excel(api, cfg):
                         "saved_at": "2026-10-28T10:06"}, f)
     sepia.append_jsonl({"observation_id": 1, "individual": "c", "side": "dorsal",
                         "saved_at": "2026-10-28T10:07"}, f)                       # sin photo_id: se ignora
-    wb = openpyxl.load_workbook(sepia.build_excel(cfg, "b.xlsx"))
-    ws = wb["identification"]
-    hdr = [c.value for c in ws[1]]
-    rows = [dict(zip(hdr, r)) for r in ws.iter_rows(min_row=2, values_only=True)]
+    wb, rows = _excel_rows(sepia.build_excel(cfg, "b.xlsx"))
     r1 = [r for r in rows if r["ID"] == 1]
     assert len(rows) == 15 and len(r1) == 3
     assert [(r["photo_id"], r["individual (a,b,c,d,e)"]) for r in r1] == [(11, "a"), (12, "a"), (12, "b")]
@@ -128,7 +137,13 @@ def test_excel(api, cfg):
     assert len(ventral) == 1 and ventral[0]["¿bitemarks?"] == "yes"   # vale la ultima
     assert all(r["number individuals (cuttlebone)"] == 2 for r in r1)  # letras distintas, no filas
     assert all(r["latitude"] == LAT for r in r1)                       # coordenadas por join
-    assert wb.sheetnames == ["identification", "legend", "excluded"]
+    assert wb.sheetnames == ["legend", "identification", "traceability", "excluded"]
+    ident = [c.value for c in wb["identification"][1]]
+    assert ident[:9] == ["n° observation", "ID", "site", "latitude", "longitude", "place",
+                         "observed on", "season", "url"]                # como la tabla de Martin
+    assert "photo_id" not in ident and ident[-1] == "possible genus/specie of balano"
+    assert all(r["season"] is None and r["site"] is None for r in rows)   # pendientes
+    assert all(r["label_source"] != "gpt" for r in rows)                  # solo anotacion manual
 
 
 def test_config_yaml(tmp_path):
@@ -316,10 +331,10 @@ def test_excel_with_triage(api, cfg, monkeypatch):
     sepia.append_jsonl({"observation_id": 2, "photo_id": 21, "individual": "a", "side": "dorsal",
                         "state": "egg case", "label_source": "annotator",
                         "saved_at": "2026-10-28T10:00"}, f)
-    ws = openpyxl.load_workbook(sepia.build_excel(cfg, "t.xlsx"))["identification"]
-    hdr = [c.value for c in ws[1]]
-    rows = {(r[1], r[hdr.index("photo_id")]): dict(zip(hdr, r))
-            for r in ws.iter_rows(min_row=2, values_only=True)}
+    _, plain = _excel_rows(sepia.build_excel(cfg, "t0.xlsx"))            # por defecto: sin triaje
+    assert all(r["state"] is None for r in plain if r["ID"] == 1)
+    _, rows = _excel_rows(sepia.build_excel(cfg, "t.xlsx", use_triage=True))
+    rows = {(r["ID"], r["photo_id"]): r for r in rows}
     r1, r2 = rows[(1, 11)], rows[(2, 21)]
     assert r1["state"] == "cuttlebone" and r1["number individuals (cuttlebone)"] == 1
     assert r1["label_source"] == "gpt" and r1["model_version"] == "m1/triage_v2"
@@ -365,9 +380,7 @@ def test_annotation_events(api, cfg):
     line = sepia.read_jsonl(an.annotation_file(cfg, "HZ")).iloc[0]
     assert line["schema_version"] == 1 and line["annotator"] == "HZ" and line["saved_at"].endswith("+00:00")
 
-    wb = openpyxl.load_workbook(sepia.build_excel(cfg, "ann.xlsx"))
-    hdr = [c.value for c in wb["identification"][1]]
-    rows = [dict(zip(hdr, r)) for r in wb["identification"].iter_rows(min_row=2, values_only=True)]
+    wb, rows = _excel_rows(sepia.build_excel(cfg, "ann.xlsx"))
     r1 = [r for r in rows if r["ID"] == 1]
     assert [(r["photo_id"], r["dorsal side (cuttlebone)"], r["ventral side (cuttlebone)"]) for r in r1] \
         == [(11, 1, None), (12, None, 1)]
@@ -491,9 +504,7 @@ def test_annotation_app_boxes(api, cfg):
     app.crop.value = "nonsense"
     app._safe(app.on_save)
     assert "Error" in app.msg.value
-    wb = openpyxl.load_workbook(sepia.build_excel(cfg, "box.xlsx"))["identification"]
-    hdr = [c.value for c in wb[1]]
-    r = dict(zip(hdr, next(wb.iter_rows(min_row=2, values_only=True))))
+    r = _excel_rows(sepia.build_excel(cfg, "box.xlsx"))[1][0]
     assert json.loads(r["crop_box"])["y1"] == 0.6
 
 
@@ -522,9 +533,7 @@ def test_photo_count(api, cfg):
     app.n_photo.value = 0
     app._safe(app.on_save)
     assert "Note" in app.msg.value                               # 1 anotado > 0 en la foto
-    wb = openpyxl.load_workbook(sepia.build_excel(cfg, "cnt.xlsx"))["identification"]
-    hdr = [c.value for c in wb[1]]
-    rows = {r[hdr.index("photo_id")]: dict(zip(hdr, r)) for r in wb.iter_rows(min_row=2, values_only=True)}
+    rows = {r["photo_id"]: r for r in _excel_rows(sepia.build_excel(cfg, "cnt.xlsx"))[1]}
     assert rows[12]["n_in_photo"] == 27 and rows[12]["reviewed"] is True
     assert rows[12]["individual (a,b,c,d,e)"] is None
 
@@ -579,9 +588,7 @@ def test_possible_duplicate(api, cfg):
     assert "same record" in app.msg.value
     app.inputs["possible_duplicate_of"].value = "5:b"
     app._safe(app.on_save)
-    wb = openpyxl.load_workbook(sepia.build_excel(cfg, "dup.xlsx"))["identification"]
-    hdr = [c.value for c in wb[1]]
-    r = dict(zip(hdr, next(wb.iter_rows(min_row=2, values_only=True))))
+    r = _excel_rows(sepia.build_excel(cfg, "dup.xlsx"))[1][0]
     assert r["possible_duplicate_of"] == "5:b"
 
 
@@ -599,9 +606,7 @@ def test_duplicate_photo(api, cfg):
     assert sepia.annotate.first_pending(app.queue, ev) == 2
     app._go(1)
     assert "Same as photo 1" in app.table.value
-    wb = openpyxl.load_workbook(sepia.build_excel(cfg, "dupph.xlsx"))["identification"]
-    hdr = [c.value for c in wb[1]]
-    rows = {r[hdr.index("photo_id")]: dict(zip(hdr, r)) for r in wb.iter_rows(min_row=2, values_only=True)}
+    rows = {r["photo_id"]: r for r in _excel_rows(sepia.build_excel(cfg, "dupph.xlsx"))[1]}
     assert rows[12]["duplicate_of_photo"] == 11 and rows[12]["reviewed"] is True
     assert rows[12]["individual (a,b,c,d,e)"] is None and rows[11]["number individuals (cuttlebone)"] == 1
     app._safe(app.on_save)                                       # anotar igual la foto 12: deshace

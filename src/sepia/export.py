@@ -25,6 +25,7 @@ EXCEL_COLUMNS = [
     ("longitude", "longitude"),
     ("place", "place_guess"),
     ("observed on", "observed_on"),
+    ("season", "season"),
     ("url", "url"),
     ("individual (a,b,c,d,e)", "individual"),
     ("photo quality", "photo_quality"),
@@ -43,7 +44,10 @@ EXCEL_COLUMNS = [
     ("possible genus/specie of balano", "barnacle_taxon"),
 ]
 
-# Columnas de trazabilidad: van al final de la tabla entregada
+# Columnas de trazabilidad: van en la hoja 'traceability', con las mismas filas y en el mismo
+# orden que 'identification' (que queda con las columnas de Martin, sin agregados).
+# Las primeras tres repiten la clave de la fila para poder unir las dos hojas.
+TRACE_KEY = ["n° observation", "ID", "individual (a,b,c,d,e)"]
 TRACE_COLUMNS = ["photo_id", "photo_position", "n_in_photo", "duplicate_of_photo", "crop_box", "label_source", "model_version", "model_prob",
                  "reviewed", "annotator", "round", "validation_set",
                  "possible_duplicate_of", "excluded_reason", "download_date", "notes"]
@@ -52,27 +56,28 @@ TRACE_COLUMNS = ["photo_id", "photo_position", "n_in_photo", "duplicate_of_photo
 LEGEND = {
     "n° observation": "observation number in ascending order with respect to the site",
     "ID": "iNaturalist observation ID",
-    "site": "sector defined by the authors (A-E, see sector map)",
-    "latitude": "coordinates from iNaturalist (decimal degrees, unmodified)",
-    "longitude": "coordinates from iNaturalist (decimal degrees, unmodified)",
+    "site": "location defined by the authors for extracting data from iNaturalist (see details on the \u201cMap\u201d sheet)",
+    "latitude": "coordinates extracted from iNaturalist based on the location of the observation (decimal degrees, unmodified)",
+    "longitude": "coordinates extracted from iNaturalist based on the location of the observation (decimal degrees, unmodified)",
     "place": "description of the location recorded by the iNaturalist observer",
     "observed on": "observation date",
+    "season": "season of the year, such as summer, spring, autumn, and winter",
     "url": "iNaturalist observation URL",
     "individual (a,b,c,d,e)": "individual within the record, labelled clockwise from the upper left in the first photo where it appears; the same letter is kept in all photos of the record",
-    "photo quality": "high (not covered by sand or seaweeds), medium (most details visible, moderate cover), low (blurry or covered, details difficult to distinguish). Operational rule: high = whole bone visible, in focus, nothing on top; medium = small areas hidden; low = more than half hidden, or blurry, or too small to see details",
-    "state": "cuttlebone, egg case or live animal",
+    "photo quality": "high quality (good quality, not covered by sand or seaweeds), medium quality (most details can be seen, only moderate cover by sand or seaweeds), and low quality (blurry photo or covered by sand or seaweeds, details difficult to distinguish)",
+    "state": "organism in the form of cuttlebone, eggs, or squid",
     "number of pictures in record": "number of photos in the iNaturalist record",
     "number individuals (cuttlebone)": "number of distinct cuttlebones in the record (distinct letters, not rows)",
     "dorsal side (cuttlebone)": "1 if this row describes the dorsal side",
     "ventral side (cuttlebone)": "1 if this row describes the ventral side",
-    "level of erosion": "1 (almost intact), 2 (moderate erosion, some pieces missing), 3 (high erosion, at least 10% missing). Operational rule: 1 = outline complete; 2 = pieces missing, <10% in total; 3 = 10% or more missing, incl. fragments",
-    "¿bitemarks?": "presence of bird peck marks: yes, no, (yes) = probable",
-    "¿epibionts?": "presence of organisms attached to the bone",
+    "level of erosion": "1 (almost perfect), 2 (somewhat eroded, with some pieces missing), and 3 (very eroded, at least 10% missing)",
+    "¿bitemarks?": "presence of bird peck marks",
+    "¿epibionts?": "presence of organisms that adhere to bone",
     "certainty (1 high, 0 low)": "certainty of the row's classification",
-    "taxonomic groups": "taxonomic group of attached organisms, mainly barnacles",
+    "taxonomic groups": "taxonomic group of organisms that attach themselves to bone, mainly barnacles (crustaceans)",
     "number of barnacles (0; 1-10; 10-100; >100)": "barnacle abundance class",
     "aproximate size of barnacle (small, medium, large)": "approximate barnacle size",
-    "possible genus/specie of balano": "genus or species of Balanidae, if the photo allows",
+    "possible genus/specie of balano": "if the photograph is good, the genus or species of the Balanidae family can be identified here",
     "photo_id": "iNaturalist photo ID of the row (one row per photo and individual)",
     "photo_position": "position of the photo in the iNaturalist record (1 = first)",
     "duplicate_of_photo": "this photo repeats another photo of the same record (its photo ID): not annotated",
@@ -136,12 +141,16 @@ def triage_for_excel(cfg: Config) -> pd.DataFrame:
     return out
 
 
-def build_excel(cfg: Config, out_name: str | None = None) -> Path:
+def build_excel(cfg: Config, out_name: str | None = None, use_triage: bool = False) -> Path:
     """
     Genera el Excel de entrega con el formato de Martin, en cualquier momento.
     - Una fila por foto x individuo (una por foto si la foto aun no esta anotada).
     - Solo valores: sin formulas, coordenadas numericas.
-    - Hojas: identification, legend, excluded.
+    - Hojas: legend, identification (columnas de Martin + individual), traceability
+      (mismas filas, columnas de trazabilidad), excluded.
+    - Por defecto solo anotaciones manuales. use_triage=True completa state y n_cuttlebones
+      con el triaje donde no hay anotacion (label_source = gpt).
+    - season y site quedan en blanco por ahora (pendientes).
     """
     from openpyxl import Workbook
     from openpyxl.styles import Font
@@ -236,8 +245,11 @@ def build_excel(cfg: Config, out_name: str | None = None) -> Path:
 
     # Triaje (GPT): completa state y n_cuttlebones SOLO donde no hay anotacion manual.
     # La anotacion de una persona siempre tiene prioridad sobre el modelo.
-    tri = triage_for_excel(cfg)
-    table = table.merge(tri, on="observation_id", how="left")
+    tri = (triage_for_excel(cfg) if use_triage else
+           pd.DataFrame(columns=["observation_id", "state_gpt", "n_cuttlebones_gpt",
+                                 "model_version_gpt", "model_prob_gpt"]))
+    table = table.merge(tri.astype({"observation_id": table["observation_id"].dtype}),
+                        on="observation_id", how="left")
     for c in ["state", "n_cuttlebones", "label_source", "model_version", "model_prob",
               "reviewed"]:
         if c not in table:
@@ -261,6 +273,8 @@ def build_excel(cfg: Config, out_name: str | None = None) -> Path:
     table["dorsal_side"] = (side == "dorsal").map({True: 1, False: None})
     table["ventral_side"] = (side == "ventral").map({True: 1, False: None})
 
+    # Pendientes: sector y estacion quedan en blanco (columna presente, como en la tabla de Martin)
+    table["season"] = None
     # Orden: sector, registro, individuo, lado. n° observation correlativo por sector
     if "site" not in table:
         table["site"] = None
@@ -274,35 +288,43 @@ def build_excel(cfg: Config, out_name: str | None = None) -> Path:
     # Fecha como fecha real de Excel (no texto)
     table["observed_on"] = pd.to_datetime(table["observed_on"], errors="coerce").dt.date
 
-    headers = [h for h, _ in EXCEL_COLUMNS] + TRACE_COLUMNS
-    internal = [c for _, c in EXCEL_COLUMNS] + TRACE_COLUMNS
+    headers = [h for h, _ in EXCEL_COLUMNS]
+    internal = [c for _, c in EXCEL_COLUMNS]
+    to_internal = dict(EXCEL_COLUMNS)
+    trace_headers = TRACE_KEY + TRACE_COLUMNS
+    trace_internal = [to_internal[h] for h in TRACE_KEY] + TRACE_COLUMNS
+
+    def _value(rec, c):
+        v = _clean(rec.get(c))
+        if isinstance(v, (list, dict)):  # p. ej. crop_box
+            v = json.dumps(v, ensure_ascii=False)
+        return v
 
     wb = Workbook()
-    ws = wb.active
-    ws.title = "identification"
+    lg = wb.active
+    lg.title = "legend"                       # primera hoja, como en la tabla de Martin
+    ws = wb.create_sheet("identification")
+    tr = wb.create_sheet("traceability")
     ws.append(headers)
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
+    tr.append(trace_headers)
+    for sheet in (ws, tr):
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
     for rec in table.to_dict(orient="records"):
-        values = []
-        for c in internal:
-            v = _clean(rec.get(c))
-            if isinstance(v, (list, dict)):  # p. ej. crop_box
-                v = json.dumps(v, ensure_ascii=False)
-            values.append(v)
-        ws.append(values)
+        ws.append([_value(rec, c) for c in internal])
+        tr.append([_value(rec, c) for c in trace_internal])
     # Coordenadas: numeros con formato fijo de 10 decimales (solo visual, el valor no cambia)
     for col_name in ("latitude", "longitude"):
         col = get_column_letter(headers.index(col_name) + 1)
         for cell in ws[col][1:]:
             if isinstance(cell.value, (int, float)):
                 cell.number_format = "0.0000000000"
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = ws.dimensions
+    for sheet in (ws, tr):
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = sheet.dimensions
 
-    lg = wb.create_sheet("legend")
     lg.append(["column", "description"])
-    for h in headers:
+    for h in headers + TRACE_COLUMNS:
         lg.append([h, LEGEND.get(h, "")])
 
     ex = wb.create_sheet("excluded")
