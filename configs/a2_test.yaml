@@ -1,0 +1,36 @@
+# Corrida de prueba con el sector A2 (South Shields a la desembocadura del rio Yare).
+# Rectangulo APROXIMADO, sacado de los 49 registros A2 de la tabla de Martin (22 oct:
+# lat 52.61 a 54.96, lon -1.36 a 1.74) con margen. No son los limites del PPT de Martin
+# (SepiaFORhugo21oct2026.pptx, diap. 5-12): la asignacion de sectores es una fase posterior.
+# El rectangulo incluye zonas del interior y se cruza con el de A1 entre lat 54.9 y 55.0:
+# por eso skip_ids_from salta los registros que ya estan en pilot_a1.
+# Antes de descargar:  python scripts/download.py --config configs/a2_test.yaml --count-only
+base_dir: /content/drive/MyDrive/sepia-inaturalist/data/a2_test
+taxon_id: 151429                 # Sepia officinalis
+bbox: [52.57, -1.7, 55.0, 1.8]   # [sur, oeste, norte, este]
+photo_size: original
+resize: [512, 1024]
+skip_ids_from: [pilot_a1]        # no volver a bajar registros que ya estan en esa corrida
+
+# Triaje (scripts/triage.py). Clave en la variable de entorno GEMINI_API_KEY.
+triage:
+  provider: gemini
+  model: gemini-3.5-flash-lite  # liviano y gratuito; 3.8-flash daba 503 por alta demanda (oct 2026)
+  temperature: 0
+  prompt_version: triage_v2     # src/sepia/prompts/triage_v2.txt (v1: conto 24 huesos 'seguro')
+  image_size: 512               # usa photos/512px
+  requests_per_minute: 8        # por debajo del limite del nivel gratuito
+  thinking_level: low           # razonamiento del modelo: minimal, low, medium, high
+  timeout_s: 120                # tiempo maximo por llamada; si se pasa, queda como error y se reintenta al relanzar
+
+# Rasgos por foto (lado y erosion), paso aparte del triaje: no cambia el conteo.
+# Una consulta por foto; el lado y la erosion solo se piden si la foto muestra 1 hueso.
+photo_traits:
+  provider: gemini
+  model: gemini-3.5-flash-lite
+  temperature: 0
+  prompt_version: photo_traits_v14   # por defecto; el notebook corre v14, v13, v12 y v8
+  image_size: 1024                  # mas detalle que el triaje: textura y bordes
+  requests_per_minute: 8
+  thinking_level: low
+  timeout_s: 120

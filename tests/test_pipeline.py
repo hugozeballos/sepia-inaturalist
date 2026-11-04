@@ -1050,3 +1050,26 @@ def test_martin_views(tmp_path):
     assert t.loc[31, "n_differ__side"] == 1 and t.loc[31, "n_disagree__side"] == 0   # unclear cuenta
     assert not t.loc[31, "all_agree_differ__side"]
     assert list(t.index[t["ask_martin"]]) == [21]
+
+
+def test_skip_ids_from_other_run(api, tmp_path):
+    """Registros que ya estan en otra corrida no entran a las tablas (ni se bajan sus fotos)."""
+    other = tmp_path / "pilot"
+    (other / "tables").mkdir(parents=True)
+    sepia.write_jsonl([{"observation_id": 1}, {"observation_id": 2}],
+                      other / "tables" / "observations.jsonl")
+    cfg = sepia.Config(base_dir=str(tmp_path / "new_run"), per_page=3, skip_ids_from=["pilot"])
+    sepia.download_observations(cfg)
+    obs, pho = sepia.build_tables(cfg)
+    assert len(sepia.load_raw(cfg)) == 7                       # la copia cruda no se toca
+    assert len(obs) == 5 and not obs["observation_id"].isin([1, 2]).any()
+    assert not pho["observation_id"].isin([1, 2]).any()
+    log = sepia.read_jsonl(sepia.paths(cfg)["logs"] / "skipped_existing.jsonl")
+    assert sorted(log["observation_id"]) == [1, 2] and set(log["in_run"]) == {"pilot"}
+    sepia.download_photos(cfg)
+    names = {f.name for f in sepia.paths(cfg)["photos"].iterdir()}
+    assert not any(n.startswith(("1_", "2_")) for n in names)
+    bad = sepia.Config(base_dir=str(tmp_path / "x"), skip_ids_from=["missing_run"])
+    sepia.download_observations(bad)
+    with pytest.raises(FileNotFoundError):
+        sepia.build_tables(bad)

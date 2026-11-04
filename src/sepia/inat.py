@@ -220,12 +220,44 @@ def photos_table(raw: list[dict], size: str = "original") -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def existing_ids(cfg: Config) -> dict[int, str]:
+    """
+    observation_id ya presentes en las corridas de cfg.skip_ids_from -> nombre de la corrida.
+    Cada corrida se busca como carpeta junto a base_dir (o ruta completa). Si una corrida no
+    tiene tables/observations.jsonl es un error: mejor parar que bajar de nuevo sin querer.
+    """
+    out = {}
+    for name in cfg.skip_ids_from or []:
+        d = Path(name) if Path(name).is_absolute() else Path(cfg.base_dir).parent / name
+        f = d / "tables" / "observations.jsonl"
+        if not f.exists():
+            raise FileNotFoundError(f"skip_ids_from: no existe {f}")
+        for oid in read_jsonl(f)["observation_id"].astype(int):
+            out.setdefault(int(oid), name)
+    return out
+
+
 def build_tables(cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Genera tables/observations.jsonl y tables/photos.jsonl desde la copia cruda."""
+    """
+    Genera tables/observations.jsonl y tables/photos.jsonl desde la copia cruda.
+    Con cfg.skip_ids_from, los registros que ya estan en esas corridas no entran a las tablas
+    (asi tampoco se bajan sus fotos ni pasan por los modelos). La copia cruda no se toca.
+    Los saltados quedan en logs/skipped_existing.jsonl.
+    """
     p = paths(cfg)
     raw = load_raw(cfg)
     obs = observations_table(raw)
     pho = photos_table(raw, cfg.photo_size)
+    if cfg.skip_ids_from:
+        seen = existing_ids(cfg)
+        skip = obs["observation_id"].astype(int).map(seen)
+        skipped = obs.loc[skip.notna(), ["observation_id"]].assign(in_run=skip[skip.notna()])
+        write_jsonl(skipped, p["logs"] / "skipped_existing.jsonl")
+        print(f"En la consulta: {len(obs)} registros · ya en {', '.join(cfg.skip_ids_from)}: "
+              f"{len(skipped)} (no se bajan) · nuevos: {len(obs) - len(skipped)}")
+        obs = obs[skip.isna()].reset_index(drop=True)
+        if len(pho):
+            pho = pho[pho["observation_id"].isin(set(obs["observation_id"]))].reset_index(drop=True)
     write_jsonl(obs, p["tables"] / "observations.jsonl")
     write_jsonl(pho, p["tables"] / "photos.jsonl")
     print(f"observations.jsonl: {len(obs)} | photos.jsonl: {len(pho)}")
