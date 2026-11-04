@@ -706,9 +706,14 @@ class AnnotationApp:
         empty = self.events["empty_photo"]
         is_empty = ((empty["observation_id"] == oid) & (empty["photo_id"] == pid)).any()
         if len(here):
-            cols = ["individual"] + [c for c in FIELD_NAMES if c in here and c != "notes"]
-            self.table.value = ("<b>In this photo:</b>" +
-                                here[cols].fillna("").to_html(index=False, border=0))
+            # solo columnas con algun valor en esta foto (las de picorocos casi siempre vacias),
+            # y tabla con ancho maximo y scroll propio: asi no empuja los botones fuera de pantalla
+            shown = here.fillna("")
+            cols = ["individual"] + [c for c in FIELD_NAMES if c in shown and c != "notes"
+                                     and (shown[c].astype(str).str.strip() != "").any()]
+            self.table.value = ("<b>In this photo:</b>"
+                                "<div style='max-width:460px;overflow-x:auto'>"
+                                + shown[cols].to_html(index=False, border=0) + "</div>")
         else:
             dups = self.events["duplicate_photo"]
             dup = dups.loc[(dups["observation_id"] == oid) & (dups["photo_id"] == pid),
