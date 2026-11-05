@@ -1157,3 +1157,50 @@ def test_annotation_prefill_from_assisted(api, cfg):
     plain = sepia.AnnotationApp(cfg, annotator="HZ", boxes=False)      # sin prefill: como antes
     plain._go(1)
     assert plain.n_photo.value == 1
+
+
+def test_disagreement_app_two_runs(tmp_path):
+    """Dos corridas juntas solo en memoria: fotos de cada carpeta, anotacion asistida marcada."""
+    pytest.importorskip("ipywidgets")
+    import json
+    from PIL import Image
+    from sepia.disagree import DisagreementApp
+
+    def make_run(name, oid, pid, side_h, prefilled):
+        cfg = sepia.Config(base_dir=str(tmp_path / name))
+        p = sepia.paths(cfg)
+        sepia.write_jsonl([{"observation_id": oid, "photo_id": pid, "position": 1,
+                            "file_name": f"{oid}_{pid}.jpg"}], p["tables"] / "photos.jsonl")
+        d = p["base"] / "photos" / "1024px"
+        d.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (20, 20), (pid % 255, 0, 0)).save(d / f"{oid}_{pid}.jpg")
+        extra = {"prefilled_from": "assisted"} if prefilled else {}
+        with open(p["annotations"] / "manual_HZ.jsonl", "w") as f:
+            f.write(json.dumps({"kind": "photo_info", "observation_id": oid, "photo_id": pid,
+                                "n_in_photo": 1, "saved_at": "2026-11-01", **extra}) + "\n")
+            f.write(json.dumps({"kind": "individual", "observation_id": oid, "photo_id": pid,
+                                "individual": "a", "side": side_h, "erosion": 1,
+                                "photo_quality": "high", "saved_at": "2026-11-01", **extra}) + "\n")
+        out = p["base"] / "outputs"
+        out.mkdir(exist_ok=True)
+        with open(out / "photo_traits_gemini_gemini-3.5-flash-lite_photo_traits_v8.jsonl", "w") as f:
+            f.write(json.dumps({"observation_id": oid, "photo_id": pid, "position": 1,
+                                "error": None, "saved_at": "2026-11-02", "prompt_sha": "x",
+                                "result": {"n_cuttlebones_visible": 1, "side": "ventral",
+                                           "erosion": "1", "photo_quality": "high"}}) + "\n")
+        return cfg
+
+    a1 = make_run("pilot_a1", 1, 11, "dorsal", False)
+    a2 = make_run("a2_test", 2, 21, "ventral", True)
+    app = DisagreementApp([a1, a2], ["photo_traits_v8"], read_only=True)
+    assert list(app.rows["run"]) == ["pilot_a1", "a2_test"]
+    assert "blind annotation" in app.header.value and app.image.value
+    app._go(1)
+    assert "a2_test" in app.header.value and "not blind" in app.header.value
+    app.run_sel.value = "pilot_a1"
+    assert list(app.rows["photo_id"]) == [11]
+    app.run_sel.value = "all runs"
+    app.view.value = "any_model_differs"
+    assert list(app.rows["photo_id"]) == [11]                 # solo A1 difiere en el lado
+    single = DisagreementApp(a1, ["photo_traits_v8"], read_only=True)    # una corrida: igual
+    assert len(single.rows) == 1

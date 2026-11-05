@@ -417,18 +417,31 @@ class DisagreementApp:
         """
         view: all / any_model_differs / all_models_agree_differ / ask_martin (en estas vistas
         'unclear' cuenta como diferencia). read_only=True: sin veredictos ni botones de guardar.
+        cfg: una corrida o una lista de corridas (p. ej. [cfg_a1, cfg_a2]). Con varias, se juntan
+        solo en memoria para mirarlas: cada corrida sigue en su carpeta y los veredictos se
+        guardan en la corrida de cada foto.
         """
         import ipywidgets as w
-        self.w, self.cfg, self.versions, self.annotator = w, cfg, versions, annotator
+        cfgs = list(cfg) if isinstance(cfg, (list, tuple)) else [cfg]
+        self.w, self.cfg, self.versions, self.annotator = w, cfgs[0], versions, annotator
         self.read_only = read_only
-        base = paths(cfg)["base"] / "photos"
-        self.big_dirs = [base / "1024px", base / "original"]
-        self.thumb_dirs = [base / "512px"] + self.big_dirs
+        self.runs = {Path(c.base_dir).name: c for c in cfgs}
+        self.dirs = {}
+        for name, c in self.runs.items():
+            base = paths(c)["base"] / "photos"
+            big = [base / "1024px", base / "original"]
+            self.dirs[name] = (big, [base / "512px"] + big)
         self.thumb_px = thumb_px
-        self.full = disagreement_table(cfg, versions)
+        self.full = pd.concat([disagreement_table(c, versions).assign(run=n)
+                               for n, c in self.runs.items()], ignore_index=True)
         # todas las fotos (tambien sin anotar) para la tira de miniaturas
-        self.all_photos = review_table(cfg, versions)
+        self.all_photos = pd.concat([review_table(c, versions).assign(run=n)
+                                     for n, c in self.runs.items()], ignore_index=True)
         self.individuals = self._load_individuals()
+        # fotos cuya anotacion vino prellenada desde la asistida (no es a ciegas)
+        ind = self.individuals
+        self.assisted = (set(ind.loc[ind["prefilled_from"] == "assisted", "photo_id"].astype(int))
+                         if "prefilled_from" in ind else set())
         self._cache = {}
 
         n = len(versions)
@@ -442,7 +455,9 @@ class DisagreementApp:
         self.hide = w.Checkbox(value=hide_reviewed, description="Hide reviewed", indent=False)
         self.view = w.Dropdown(options=VIEWS, value=view, description="View",
                                layout=w.Layout(width="320px"))
-        for c in (self.view, self.field, self.order, self.min_dis, self.hide):
+        self.run_sel = w.Dropdown(options=["all runs"] + list(self.runs), value="all runs",
+                                  description="Run", layout=w.Layout(width="240px"))
+        for c in (self.view, self.run_sel, self.field, self.order, self.min_dis, self.hide):
             c.observe(lambda _: self._apply_filter(), names="value")
         prev_b, next_b = w.Button(description="◀ Prev"), w.Button(description="Next ▶")
         prev_b.on_click(lambda _: self._go(self.i - 1))
@@ -471,11 +486,12 @@ class DisagreementApp:
                       layout=w.Layout(width=image_width))
         if read_only:
             right = w.VBox([self.table, self.record])
-            filters = w.HBox([self.view, self.field, self.order])
+            filters = w.HBox([self.view, self.run_sel, self.field, self.order])
         else:
             right = w.VBox([self.table, self.record, self.verdict_box,
                             w.HBox([save_b, save_next_b]), self.msg])
-            filters = w.HBox([self.view, self.field, self.order, self.min_dis, self.hide])
+            filters = w.HBox([self.view, self.run_sel, self.field, self.order, self.min_dis,
+                              self.hide])
         self.box = w.VBox([filters,
                            w.HBox([prev_b, next_b, self.jump, go_b]),
                            self.header,
@@ -485,13 +501,22 @@ class DisagreementApp:
     # ---- datos ----
     def _load_individuals(self) -> pd.DataFrame:
         from .annotate import load_events
-        ind = load_events(self.cfg)["individual"]
-        return ind if len(ind) else pd.DataFrame(columns=["photo_id", "individual"])
+        parts = [load_events(c)["individual"] for c in self.runs.values()]
+        parts = [p for p in parts if len(p)]
+        return (pd.concat(parts, ignore_index=True) if parts
+                else pd.DataFrame(columns=["photo_id", "individual"]))
+
+    def _verdicts(self) -> pd.DataFrame:
+        parts = [load_verdicts(c, self.annotator) for c in self.runs.values()]
+        parts = [p for p in parts if len(p)]
+        return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
 
     def _apply_filter(self):
         f = self.field.value
         cols = COMPARE_FIELDS if f in ("any", COUNT_MISMATCH) else [f]
         rows = self.full
+        if self.run_sel.value != "all runs":
+            rows = rows[rows["run"] == self.run_sel.value]
         if f == COUNT_MISMATCH:
             rows = rows[rows["count_mismatch"]]
         view = self.view.value
@@ -517,7 +542,7 @@ class DisagreementApp:
             rows = rows.sort_values([key, "observation_id", "position"],
                                     ascending=[False, True, True])
         if self.hide.value and not self.read_only:
-            v = load_verdicts(self.cfg, self.annotator)
+            v = self._verdicts()
             if len(v):
                 done = v[v["field"] == PHOTO_CHECKED]["photo_id"].astype(int)
                 rows = rows[~rows["photo_id"].isin(set(done))]
@@ -568,6 +593,14 @@ class DisagreementApp:
         self.header.value = (f"<h3 style='margin:4px 0'>{self.i + 1}/{len(self.rows)} · "
                              f"<a href='{url}' target='_blank'>{oid}</a> · photo "
                              f"{int(r['position'])} (id {int(r['photo_id'])})</h3>")
+        if int(r["photo_id"]) in self.assisted:
+            badge = ("background:#fde2c8", "annotation prefilled from the assisted review "
+                     "(not blind)")
+        else:
+            badge = ("background:#d4edda", "blind annotation")
+        self.header.value += (f"<div style='{badge[0]};color:#000;display:inline-block;"
+                              f"padding:2px 8px;margin:2px 0'>run <b>{html.escape(r['run'])}</b>"
+                              f" · {badge[1]}</div>")
         if r["count_mismatch"]:
             self.header.value += (
                 "<div style='background:#fff3cd;color:#000;padding:4px 8px;margin:4px 0'>"
@@ -587,7 +620,7 @@ class DisagreementApp:
             self._render_verdicts(r)
 
     def _show_big(self, photo_row, reviewed_row=None):
-        self.image.value = self._read(photo_row["file_name"], self.big_dirs)
+        self.image.value = self._read(photo_row["file_name"], self.dirs[photo_row["run"]][0])
         txt = f"Photo {int(photo_row['position'])}"
         if reviewed_row is not None and int(photo_row["photo_id"]) != int(reviewed_row["photo_id"]):
             txt += (f" <b style='color:#b00'>(not the photo under review: "
@@ -601,10 +634,11 @@ class DisagreementApp:
         if len(rec) < 2:
             self.strip.children = ()
             return
+        thumbs = self.dirs[r["run"]][1]
         items = []
         for _, p in rec.iterrows():
             current = int(p["photo_id"]) == int(r["photo_id"])
-            img = w.Image(value=self._read(p["file_name"], self.thumb_dirs), format="jpeg",
+            img = w.Image(value=self._read(p["file_name"], thumbs), format="jpeg",
                           layout=w.Layout(max_width=self.thumb_px, max_height=self.thumb_px,
                                           object_fit="contain",
                                           border="3px solid #1a73e8" if current
@@ -688,7 +722,7 @@ class DisagreementApp:
 
     def _render_verdicts(self, r):
         w = self.w
-        prev = load_verdicts(self.cfg, self.annotator)
+        prev = load_verdicts(self.runs[r["run"]], self.annotator)
         prev = prev[prev["photo_id"] == int(r["photo_id"])] if len(prev) else prev
         self._verdict_widgets = {}
         done = len(prev) and (prev["field"] == PHOTO_CHECKED).any()
@@ -715,7 +749,8 @@ class DisagreementApp:
         r = self.rows.loc[self.i]
         now = dt.datetime.now(dt.timezone.utc).isoformat()
         n = 0
-        prev = load_verdicts(self.cfg, self.annotator)
+        run_cfg = self.runs[r["run"]]
+        prev = load_verdicts(run_cfg, self.annotator)
         prev = prev[prev["photo_id"] == int(r["photo_id"])] if len(prev) else prev
         for f, (tb, note) in self._verdict_widgets.items():
             had = len(prev) and (prev["field"] == f).any()
@@ -727,13 +762,13 @@ class DisagreementApp:
                 "human_value": _norm(r.get(f"{f}__human")),
                 "model_values": {v: _norm(r.get(f"{f}__{v}")) for v in self.versions},
                 "reviewer": self.annotator, "saved_at": now,
-            }, verdict_file(self.cfg, self.annotator))
+            }, verdict_file(run_cfg, self.annotator))
             n += 1
         # la foto queda marcada como revisada aunque no haya ningun error
         append_jsonl({"observation_id": int(r["observation_id"]), "photo_id": int(r["photo_id"]),
                       "field": PHOTO_CHECKED, "verdict": "checked", "note": None,
                       "versions": self.versions, "reviewer": self.annotator, "saved_at": now},
-                     verdict_file(self.cfg, self.annotator))
+                     verdict_file(run_cfg, self.annotator))
         self.msg.value = (f"<span style='color:#080'>Photo marked as reviewed · "
                           f"{n} verdict(s) saved</span>")
 
