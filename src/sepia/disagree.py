@@ -65,6 +65,40 @@ def mentions_martin(text) -> bool:
     return bool(_MARTIN.search(t))
 
 
+def ask_martin_photos(cfg: Config) -> list[int]:
+    """photo_id de las fotos donde alguna nota de un individuo menciona a Martin."""
+    from .annotate import load_events
+    ind = load_events(cfg)["individual"]
+    if not len(ind) or "notes" not in ind:
+        return []
+    return sorted(set(ind.loc[ind["notes"].map(mentions_martin), "photo_id"].astype(int)))
+
+
+def draw_boxes(image: bytes, boxes: list[tuple[str, dict]]) -> bytes:
+    """Dibuja sobre la foto el recuadro (crop_box relativo 0-1) y la letra de cada individuo."""
+    if not image or not boxes:
+        return image
+    import io
+    from PIL import Image, ImageDraw, ImageFont
+    im = Image.open(io.BytesIO(image)).convert("RGB")
+    W, H = im.size
+    d = ImageDraw.Draw(im)
+    lw = max(2, W // 250)
+    try:
+        font = ImageFont.load_default(size=max(14, W // 30))
+    except TypeError:                                   # Pillow antiguo
+        font = ImageFont.load_default()
+    for letter, b in boxes:
+        x0, y0, x1, y1 = b["x0"] * W, b["y0"] * H, b["x1"] * W, b["y1"] * H
+        d.rectangle([x0, y0, x1, y1], outline=(255, 140, 0), width=lw)
+        tx, ty = x0 + lw, max(0, y0 - font.size - 2 * lw) if hasattr(font, "size") else y0
+        d.rectangle(d.textbbox((tx, ty), str(letter), font=font), fill=(255, 140, 0))
+        d.text((tx, ty), str(letter), fill=(0, 0, 0), font=font)
+    out = io.BytesIO()
+    im.save(out, "JPEG", quality=90)
+    return out.getvalue()
+
+
 VERDICTS = [("—", "none"), ("My error", "human_error"), ("Model error", "model_error"),
             ("Unsure / ask Martin", "ask_martin")]
 
@@ -672,8 +706,20 @@ class DisagreementApp:
             self._render_verdicts(r)
 
     def _show_big(self, photo_row, reviewed_row=None):
-        self.image.value = self._read(photo_row["file_name"], self.dirs[photo_row["run"]][0])
+        img = self._read(photo_row["file_name"], self.dirs[photo_row["run"]][0])
+        ind = self.individuals
+        mine = (ind[ind["photo_id"] == int(photo_row["photo_id"])].sort_values("individual")
+                if len(ind) else ind)
+        boxes = [(r["individual"], r["crop_box"]) for _, r in mine.iterrows()
+                 if isinstance(r.get("crop_box"), dict)]
+        self.image.value = draw_boxes(img, boxes)
+        letters = list(mine["individual"]) if len(mine) else []
+        no_box = [l for l in letters if l not in {b[0] for b in boxes}]
         txt = f"Photo {int(photo_row['position'])}"
+        if letters:
+            txt += " · individuals: " + ", ".join(
+                f"<b>{html.escape(str(l))}</b>" + (" (no box)" if l in no_box else "")
+                for l in letters)
         if reviewed_row is not None and int(photo_row["photo_id"]) != int(reviewed_row["photo_id"]):
             txt += (f" <b style='color:#b00'>(not the photo under review: "
                     f"photo {int(reviewed_row['position'])})</b>")

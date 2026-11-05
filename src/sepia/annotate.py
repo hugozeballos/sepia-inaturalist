@@ -405,8 +405,10 @@ class AnnotationApp:
 
     def __init__(self, cfg: Config, annotator: str, round_=None, ids=None, image_px=1024,
                  image_width="480px", image_height="560px", thumb_px="140px", boxes=True,
-                 prefill: str | None = None):
+                 prefill: str | None = None, photo_ids=None):
         """
+        photo_ids: recorrer solo estas fotos (p. ej. las que tienen notas para Martin). Las demas
+        fotos de esos registros siguen en las miniaturas, pero Prev/Next saltan entre las elegidas.
         prefill="assisted": en fotos SIN anotacion manual, el formulario parte con lo guardado en
         la anotacion asistida (annotations_assisted/<anotador>.jsonl). La letra la pone la
         persona. Lo guardado lleva prefilled_from='assisted' (no es anotacion a ciegas).
@@ -420,6 +422,13 @@ class AnnotationApp:
             self.prefill = {int(r["photo_id"]): r for r in a.to_dict("records")} if len(a) else {}
         elif prefill is not None:
             raise ValueError("prefill must be None or 'assisted'")
+        self.only = {int(x) for x in photo_ids} if photo_ids is not None else None
+        if self.only is not None:
+            obs_of = work_queue(cfg)
+            obs_of = obs_of[obs_of["photo_id"].isin(self.only)]["observation_id"]
+            ids = sorted(set(obs_of) | ({int(i) for i in ids} if ids is not None else set()))
+            if not ids:
+                raise RuntimeError("Ninguna de esas fotos esta en esta corrida")
         self.queue = work_queue(cfg, ids)
         if self.queue.empty:
             raise RuntimeError("No hay fotos: correr la descarga (tables y photos) primero")
@@ -430,6 +439,8 @@ class AnnotationApp:
         self._thumb_cache = {}
         self.events = load_events(cfg)
         self.i = first_pending(self.queue, self.events) or 0
+        if self.only is not None:                     # empezar en la primera foto elegida
+            self.i = self._chosen()[0]
 
         # --- widgets ---
         self.header = w.HTML()
@@ -965,11 +976,19 @@ class AnnotationApp:
         self._reload()
         self._render()
 
+    def _chosen(self) -> list[int]:
+        """Posiciones de la cola que se recorren con Prev/Next (todas, o solo photo_ids)."""
+        if self.only is None:
+            return list(range(len(self.queue)))
+        return [int(j) for j in self.queue.index[self.queue["photo_id"].isin(self.only)]]
+
     def on_prev(self):
-        self._go(self.i - 1)
+        prev = [j for j in self._chosen() if j < self.i]
+        self._go(prev[-1] if prev else self.i)
 
     def on_next(self):
-        self._go(self.i + 1)
+        nxt = [j for j in self._chosen() if j > self.i]
+        self._go(nxt[0] if nxt else self.i)
 
     def on_pending(self):
         i = first_pending(self.queue, self.events)

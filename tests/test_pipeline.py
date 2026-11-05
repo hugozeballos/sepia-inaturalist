@@ -1251,3 +1251,34 @@ def test_mode_of_top_prompts(tmp_path):
     assert s.set_index("prompt_version").loc[MODE, "accuracy"] == 0.5
     c = count_agreement(cfg, top3, quiet=True, mode_of=top3)
     assert c.loc[MODE, "agreement"] == 1.0
+
+
+def test_ask_martin_editing_and_boxes(api, cfg):
+    """AnnotationApp(photo_ids=...) recorre solo esas fotos; draw_boxes dibuja el recuadro."""
+    pytest.importorskip("ipywidgets")
+    import io
+    from PIL import Image
+    from sepia.disagree import ask_martin_photos, draw_boxes
+    _ready(cfg)
+    f = sepia.annotate.annotation_file(cfg, "HZ")
+    sepia.append_jsonl({"kind": "individual", "observation_id": 1, "photo_id": 12, "individual": "a",
+                        "state": "cuttlebone", "notes": "preguntar a Martín",
+                        "saved_at": "2026-11-05T10:00:00+00:00"}, f)
+    sepia.append_jsonl({"kind": "individual", "observation_id": 2, "photo_id": 21, "individual": "a",
+                        "state": "cuttlebone", "notes": "ok", "saved_at": "2026-11-05T10:01:00+00:00"}, f)
+    ids = ask_martin_photos(cfg)
+    assert ids == [12]
+    app = sepia.AnnotationApp(cfg, annotator="HZ", boxes=False, photo_ids=ids)
+    assert app.row["photo_id"] == 12
+    assert set(app.queue["observation_id"]) == {1}           # el registro completo en miniaturas
+    app.on_next()
+    assert app.row["photo_id"] == 12                         # no hay otra elegida: se queda
+    app.on_prev()
+    assert app.row["photo_id"] == 12
+    buf = io.BytesIO()
+    Image.new("RGB", (200, 100), (255, 255, 255)).save(buf, "JPEG")
+    out = draw_boxes(buf.getvalue(), [("a", {"x0": 0.1, "y0": 0.2, "x1": 0.5, "y1": 0.8})])
+    im = Image.open(io.BytesIO(out)).convert("RGB")
+    r, g, b = im.getpixel((20, 50))                           # borde izquierdo del recuadro
+    assert r > 200 and g < 200 and b < 100                    # naranjo
+    assert draw_boxes(buf.getvalue(), []) == buf.getvalue()
