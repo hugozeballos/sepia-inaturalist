@@ -390,7 +390,7 @@ def test_annotation_events(api, cfg):
     assert r21["reviewed"] is True and r21["individual (a,b,c,d,e)"] is None
     assert not any(r["ID"] == 3 for r in rows)
     ex = list(wb["excluded"].iter_rows(min_row=2, values_only=True))
-    assert len(ex) == 1 and ex[0][0] == 3 and ex[0][-1] == "captive animal"
+    assert len(ex) == 1 and ex[0][1] == 3 and ex[0][-1] == "captive animal"   # ex[0][0] = run
 
 
 def test_annotation_app_smoke(api, cfg):
@@ -1282,3 +1282,41 @@ def test_ask_martin_editing_and_boxes(api, cfg):
     r, g, b = im.getpixel((20, 50))                           # borde izquierdo del recuadro
     assert r > 200 and g < 200 and b < 100                    # naranjo
     assert draw_boxes(buf.getvalue(), []) == buf.getvalue()
+
+
+def test_excel_two_runs(api, tmp_path):
+    """Un solo Excel con dos corridas: filas una debajo de otra, run y prefilled_from."""
+    from sepia.disagree import ask_martin_photos  # noqa: F401  (import del modulo)
+    a1 = sepia.Config(base_dir=str(tmp_path / "proj" / "data" / "r1"), per_page=3)
+    sepia.download_observations(a1)
+    sepia.build_tables(a1)
+    a2 = sepia.Config(base_dir=str(tmp_path / "proj" / "data" / "r2"), per_page=3,
+                      skip_ids_from=["r1"])
+    # r2: mismos datos de la API, pero sin los registros de r1 -> se arma a mano con 1 registro
+    sepia.download_observations(a2)
+    obs, pho = sepia.load_tables(a1)
+    p2 = sepia.paths(a2)
+    sepia.write_jsonl(obs[obs["observation_id"] == 1].assign(observation_id=101),
+                      p2["tables"] / "observations.jsonl")
+    sepia.write_jsonl(pho[pho["observation_id"] == 1].assign(observation_id=101,
+                                                            photo_id=pho["photo_id"] + 1000),
+                      p2["tables"] / "photos.jsonl")
+    sepia.append_jsonl({"kind": "individual", "observation_id": 101, "photo_id": 1011,
+                        "individual": "a", "side": "ventral", "prefilled_from": "assisted",
+                        "saved_at": "2026-11-05T10:00:00+00:00"},
+                       p2["annotations"] / "manual_HZ.jsonl")
+    out = sepia.build_excel([a1, a2], "both.xlsx")
+    assert out.parent == tmp_path / "proj" / "exports"
+    wb, rows = _excel_rows(out)
+    runs = [r["run"] for r in rows]
+    assert runs == sorted(runs, key=["r1", "r2"].index)          # primero r1, despues r2
+    r101 = [r for r in rows if r["ID"] == 101]
+    assert len(r101) == 2 and {r["prefilled_from"] for r in r101} == {"assisted", None}
+    assert [r["n° observation"] for r in rows if r["ID"] == 101][0] == 8   # correlativo total
+    assert [c.value for c in wb["excluded"][1]][0] == "run"
+    # un registro en las dos corridas -> error
+    sepia.write_jsonl(obs[obs["observation_id"] == 1], p2["tables"] / "observations.jsonl")
+    sepia.write_jsonl(pho[pho["observation_id"] == 1], p2["tables"] / "photos.jsonl")
+    with pytest.raises(ValueError):
+        sepia.build_excel([a1, a2], "dup.xlsx")
+    assert sepia.build_excel(a1, "one.xlsx").parent == sepia.paths(a1)["exports"]

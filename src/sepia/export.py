@@ -48,7 +48,7 @@ EXCEL_COLUMNS = [
 # orden que 'identification' (que queda con las columnas de Martin, sin agregados).
 # Las primeras tres repiten la clave de la fila para poder unir las dos hojas.
 TRACE_KEY = ["n° observation", "ID", "individual (a,b,c,d,e)"]
-TRACE_COLUMNS = ["photo_id", "photo_position", "n_in_photo", "duplicate_of_photo", "crop_box", "label_source", "model_version", "model_prob",
+TRACE_COLUMNS = ["run", "prefilled_from", "photo_id", "photo_position", "n_in_photo", "duplicate_of_photo", "crop_box", "label_source", "model_version", "model_prob",
                  "reviewed", "annotator", "round", "validation_set",
                  "possible_duplicate_of", "excluded_reason", "download_date", "notes"]
 
@@ -78,6 +78,8 @@ LEGEND = {
     "number of barnacles (0; 1-10; 10-100; >100)": "barnacle abundance class",
     "aproximate size of barnacle (small, medium, large)": "approximate barnacle size",
     "possible genus/specie of balano": "if the photograph is good, the genus or species of the Balanidae family can be identified here",
+    "run": "download run (data folder) the row comes from, e.g. pilot_a1, a2_test",
+    "prefilled_from": "empty = blind manual annotation; 'assisted' = the annotation started from an assisted review where the model outputs were visible",
     "photo_id": "iNaturalist photo ID of the row (one row per photo and individual)",
     "photo_position": "position of the photo in the iNaturalist record (1 = first)",
     "duplicate_of_photo": "this photo repeats another photo of the same record (its photo ID): not annotated",
@@ -141,21 +143,8 @@ def triage_for_excel(cfg: Config) -> pd.DataFrame:
     return out
 
 
-def build_excel(cfg: Config, out_name: str | None = None, use_triage: bool = False) -> Path:
-    """
-    Genera el Excel de entrega con el formato de Martin, en cualquier momento.
-    - Una fila por foto x individuo (una por foto si la foto aun no esta anotada).
-    - Solo valores: sin formulas, coordenadas numericas.
-    - Hojas: legend, identification (columnas de Martin + individual), traceability
-      (mismas filas, columnas de trazabilidad), excluded.
-    - Por defecto solo anotaciones manuales. use_triage=True completa state y n_cuttlebones
-      con el triaje donde no hay anotacion (label_source = gpt).
-    - season y site quedan en blanco por ahora (pendientes).
-    """
-    from openpyxl import Workbook
-    from openpyxl.styles import Font
-    from openpyxl.utils import get_column_letter
-
+def _excel_table(cfg: Config, use_triage: bool = False):
+    """Tabla de una corrida para el Excel (una fila por foto x individuo) y sus excluidos."""
     p = paths(cfg)
     obs, pho = load_tables(cfg)
     if obs.empty:
@@ -288,6 +277,56 @@ def build_excel(cfg: Config, out_name: str | None = None, use_triage: bool = Fal
     # Fecha como fecha real de Excel (no texto)
     table["observed_on"] = pd.to_datetime(table["observed_on"], errors="coerce").dt.date
 
+    return table, excluded
+
+
+def build_excel(cfg, out_name: str | None = None, use_triage: bool = False) -> Path:
+    """
+    Genera el Excel de entrega con el formato de Martin, en cualquier momento.
+    - cfg: una corrida o una lista de corridas (p. ej. [cfg_a1, cfg_a2]). Con varias, las
+      filas de cada corrida van una debajo de la otra (en el orden de la lista) en UN solo
+      Excel; las corridas no se modifican. Error si un registro esta en dos corridas.
+    - Una fila por foto x individuo (una por foto si la foto aun no esta anotada).
+    - Solo valores: sin formulas, coordenadas numericas.
+    - Hojas: legend, identification (columnas de Martin + individual), traceability
+      (mismas filas: run, prefilled_from, photo_id, ...), excluded.
+    - Por defecto solo anotaciones manuales. use_triage=True completa state y n_cuttlebones
+      con el triaje donde no hay anotacion (label_source = gpt).
+    - season y site quedan en blanco por ahora (pendientes). n° observation es correlativo
+      por sector (con site en blanco: sobre toda la tabla).
+    - Una corrida: se guarda en exports/ de la corrida. Varias: en <carpeta del proyecto>/exports/
+      (junto a data/).
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    cfgs = list(cfg) if isinstance(cfg, (list, tuple)) else [cfg]
+    tables, excl = [], []
+    for k, c in enumerate(cfgs):
+        name = Path(c.base_dir).name
+        t, ex = _excel_table(c, use_triage)
+        tables.append(t.assign(run=name, _run_order=k))
+        excl.append(ex.assign(run=name))
+    seen = {}
+    for t in tables:
+        for oid in t["observation_id"].dropna().astype(int).unique():
+            if oid in seen and seen[oid] != t["run"].iloc[0]:
+                raise ValueError(f"el registro {oid} esta en dos corridas ({seen[oid]} y "
+                                 f"{t['run'].iloc[0]}): revisar skip_ids_from")
+            seen[oid] = t["run"].iloc[0]
+    table = pd.concat(tables, ignore_index=True)
+    excluded = pd.concat(excl, ignore_index=True) if excl else pd.DataFrame()
+    # Orden y n° observation sobre la tabla completa (correlativo por sector)
+    table = table.sort_values(["site", "_run_order", "observation_id", "photo_position",
+                               "individual"], na_position="last").reset_index(drop=True)
+    order = (table.drop_duplicates("observation_id")
+             .assign(obs_n=lambda d: d.groupby("site", dropna=False).cumcount() + 1)
+             .set_index("observation_id")["obs_n"])
+    table["obs_n"] = table["observation_id"].map(order)
+    if "prefilled_from" not in table:
+        table["prefilled_from"] = None
+
     headers = [h for h, _ in EXCEL_COLUMNS]
     internal = [c for _, c in EXCEL_COLUMNS]
     to_internal = dict(EXCEL_COLUMNS)
@@ -328,13 +367,19 @@ def build_excel(cfg: Config, out_name: str | None = None, use_triage: bool = Fal
         lg.append([h, LEGEND.get(h, "")])
 
     ex = wb.create_sheet("excluded")
-    ex_cols = ["observation_id", "url", "observed_on", "latitude", "longitude", "excluded_reason"]
+    ex_cols = ["run", "observation_id", "url", "observed_on", "latitude", "longitude",
+               "excluded_reason"]
     ex.append(ex_cols)
     for r in excluded.itertuples(index=False):
         ex.append([_clean(getattr(r, c, None)) for c in ex_cols])
 
     stamp = dt.datetime.now().strftime("%Y%m%d_%H%M")
-    out = p["exports"] / (out_name or f"sepia_inat_{stamp}.xlsx")
+    if len(cfgs) == 1:
+        out_dir = paths(cfgs[0])["exports"]
+    else:
+        out_dir = Path(cfgs[0].base_dir).parent.parent / "exports"
+        out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / (out_name or f"sepia_inat_{stamp}.xlsx")
     wb.save(out)
     print(f"Excel: {out} | {len(table)} filas | {len(excluded)} excluidos")
     return out
