@@ -1,3 +1,4 @@
+from pathlib import Path
 """
 Pruebas sin internet: simulan la API de iNaturalist.
 Correr con:  pytest -q
@@ -137,7 +138,17 @@ def test_excel(api, cfg):
     assert len(ventral) == 1 and ventral[0]["¿bitemarks?"] == "yes"   # vale la ultima
     assert all(r["number individuals (cuttlebone)"] == 2 for r in r1)  # letras distintas, no filas
     assert all(r["latitude"] == LAT for r in r1)                       # coordenadas por join
-    assert wb.sheetnames == ["legend", "identification", "traceability", "excluded"]
+    run = Path(cfg.base_dir).name
+    assert wb.sheetnames == ["legend", "map", "identification", run, "traceability", "excluded"]
+    rs = wb[run]
+    rhdr = [c.value for c in rs[1]]
+    assert rhdr[:4] == ["id", "uuid", "observed_on_string", "observed_on"]
+    assert "private_latitude" in rhdr and rhdr[-1] == "excluded_reason"
+    recs = [dict(zip(rhdr, r)) for r in rs.iter_rows(min_row=2, values_only=True)]
+    assert len(recs) == 7 and recs[0]["latitude"] == LAT            # una fila por registro
+    r1 = [r for r in recs if r["id"] == 1][0]
+    assert r1["photos annotated"] == "2/2" and r1["number individuals (cuttlebone)"] is None
+    assert r1["photo IDs"] == "11, 12"
     ident = [c.value for c in wb["identification"][1]]
     assert ident[:10] == ["n° observation", "ID", "photo ID", "site", "latitude", "longitude",
                           "place", "observed on", "season", "url"]      # Martin + photo ID
@@ -339,8 +350,8 @@ def test_excel_with_triage(api, cfg, monkeypatch):
     rows = {(r["ID"], r["photo_id"]): r for r in rows}
     r1, r2 = rows[(1, 11)], rows[(2, 21)]
     assert r1["state"] == "cuttlebone" and r1["number individuals (cuttlebone)"] == 1
-    assert r1["label_source"] == "gpt" and r1["model_version"] == "m1/triage_v2"
-    assert json.loads(r1["model_prob"])["confidence"] == "high"
+    assert r1["label_source"] == "gpt"
+    assert "model_version" not in r1 and "model_prob" not in r1      # no van al Excel
     assert r1["reviewed"] is False
     assert r2["state"] == "egg case" and r2["label_source"] == "annotator"   # gana la persona
 

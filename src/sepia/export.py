@@ -9,7 +9,7 @@ import pandas as pd
 
 from .config import Config
 from .io import paths, read_jsonl, _clean
-from .inat import load_tables
+from .inat import load_tables, load_raw, _coords
 
 
 # --------------------------------------------------------------------------
@@ -51,9 +51,10 @@ EXCEL_COLUMNS = [
 # orden que 'identification' (que queda con las columnas de Martin, sin agregados).
 # Las primeras tres repiten la clave de la fila para poder unir las dos hojas.
 TRACE_KEY = ["n° observation", "ID", "individual (a,b,c,d,e)"]
-TRACE_COLUMNS = ["run", "prefilled_from", "photo_id", "photo_position", "n_in_photo", "crop_box", "label_source", "model_version", "model_prob",
-                 "reviewed", "annotator", "round", "validation_set",
+TRACE_COLUMNS = ["run", "prefilled_from", "photo_id", "photo_position", "n_in_photo", "crop_box",
+                 "label_source", "reviewed", "annotator", "round",
                  "excluded_reason", "download_date", "notes"]
+# (sin model_version, model_prob ni validation_set: el Excel lleva solo anotacion manual; 6 nov)
 
 # Leyenda (definiciones de la hoja 'legend' de Martin + columnas nuevas)
 LEGEND = {
@@ -102,6 +103,98 @@ LEGEND = {
     "download_date": "date the record was downloaded from iNaturalist",
     "notes": "free-text remarks of the annotator (doubts, unusual cases)",
 }
+
+# Hojas de registros (A1, A2...): una fila por registro. Columnas de la hoja A1 de Martin, en
+# su orden, + user_id, user_login, updated_at (de su hoja A2) + resumen de la anotacion manual.
+RECORD_COLUMNS = ["id", "uuid", "observed_on_string", "observed_on", "time_observed_at",
+                  "time_zone", "user_name", "created_at", "quality_grade", "license", "url",
+                  "description", "place_guess", "latitude", "longitude", "positional_accuracy",
+                  "private_latitude", "private_longitude", "public_positional_accuracy",
+                  "geoprivacy", "taxon_geoprivacy", "coordinates_obscured", "positioning_method",
+                  "positioning_device", "scientific_name", "common_name", "taxon_id",
+                  "user_id", "user_login", "updated_at"]
+RECORD_ANNOTATION = ["number of pictures in record", "photo IDs", "photos annotated",
+                     "state (annotated)", "number individuals (cuttlebone)", "excluded_reason"]
+RECORD_LEGEND = {
+    "private_latitude": "true coordinates of obscured records: NOT available from the public iNaturalist API (only for the observer or curators), left empty",
+    "private_longitude": "see private_latitude",
+    "photo IDs": "iNaturalist photo IDs of the record, in their order in the record",
+    "photos annotated": "photos of the record already annotated by a person / total photos",
+    "state (annotated)": "states annotated in the record: cuttlebone, live animal, egg case, or mixed",
+}
+# Texto de la hoja 'map' de Martin, por nombre de hoja
+SECTOR_TEXT = {"A1": "from Thurso to North Shields",
+               "A2": "from South Shields to the mouth of River Yare"}
+
+
+def _record_row(o: dict) -> dict:
+    """Una fila de la hoja de registros desde la copia cruda de la API (iNaturalist v1)."""
+    lat, lon = _coords(o)
+    user, taxon = o.get("user") or {}, o.get("taxon") or {}
+    return {"id": o.get("id"), "uuid": o.get("uuid"),
+            "observed_on_string": o.get("observed_on_string"), "observed_on": o.get("observed_on"),
+            "time_observed_at": o.get("time_observed_at"),
+            "time_zone": o.get("observed_time_zone") or o.get("time_zone"),
+            "user_name": user.get("name"), "created_at": o.get("created_at"),
+            "quality_grade": o.get("quality_grade"), "license": o.get("license_code"),
+            "url": f"https://www.inaturalist.org/observations/{o.get('id')}",
+            "description": o.get("description"), "place_guess": o.get("place_guess"),
+            "latitude": lat, "longitude": lon,
+            "positional_accuracy": o.get("positional_accuracy"),
+            "private_latitude": None, "private_longitude": None,
+            "public_positional_accuracy": o.get("public_positional_accuracy"),
+            "geoprivacy": o.get("geoprivacy"), "taxon_geoprivacy": o.get("taxon_geoprivacy"),
+            "coordinates_obscured": o.get("obscured"),
+            "positioning_method": o.get("positioning_method"),
+            "positioning_device": o.get("positioning_device"),
+            "scientific_name": taxon.get("name"), "common_name": taxon.get("preferred_common_name"),
+            "taxon_id": taxon.get("id"), "user_id": user.get("id"), "user_login": user.get("login"),
+            "updated_at": o.get("updated_at")}
+
+
+def records_sheet(cfg: Config) -> pd.DataFrame:
+    """
+    Hoja de registros de una corrida: una fila por registro de sus tablas (tambien los
+    excluidos, con el motivo), metadatos de iNaturalist + resumen de la anotacion manual.
+    """
+    from .annotate import load_events, done_photos
+    obs, pho = load_tables(cfg)
+    keep = set(obs["observation_id"].astype(int))
+    raw = {int(o["id"]): o for o in load_raw(cfg)}
+    rows = [_record_row(raw[i]) for i in sorted(keep) if i in raw]
+    rec = pd.DataFrame(rows, columns=RECORD_COLUMNS)
+    ev = load_events(cfg)
+    ind = ev["individual"]
+    done = done_photos(ev)
+    by_rec = pho.sort_values(["observation_id", "position"]).groupby("observation_id")["photo_id"]
+    photo_ids = by_rec.apply(lambda s: ", ".join(str(int(x)) for x in s))
+    n_photos = by_rec.size()
+    n_done = pd.Series({oid: sum((int(oid), int(p)) in done for p in ps)
+                        for oid, ps in by_rec}, dtype="int64")
+    rec["number of pictures in record"] = rec["id"].map(n_photos)
+    rec["photo IDs"] = rec["id"].map(photo_ids)
+    rec["photos annotated"] = [f"{int(n_done.get(i, 0))}/{int(n_photos.get(i, 0))}"
+                               for i in rec["id"]]
+    if len(ind) and "state" in ind:
+        states = ind.dropna(subset=["state"]).groupby("observation_id")["state"].agg(
+            lambda s: s.iloc[0] if s.nunique() == 1 else "mixed")
+        bones = (ind[ind["state"] == "cuttlebone"].groupby("observation_id")["individual"]
+                 .nunique())
+    else:
+        states, bones = pd.Series(dtype=object), pd.Series(dtype="int64")
+    rec["state (annotated)"] = rec["id"].map(states)
+    rec["number individuals (cuttlebone)"] = rec["id"].map(bones)
+    reasons = {}                               # motivo de exclusion: tabla y anotacion
+    if "excluded_reason" in obs:
+        reasons.update(obs.dropna(subset=["excluded_reason"])
+                       .set_index("observation_id")["excluded_reason"].to_dict())
+    exc = ev["exclude_record"]
+    if len(exc):
+        reasons.update(exc.set_index("observation_id")["excluded_reason"].to_dict())
+    rec["excluded_reason"] = rec["id"].map(reasons)
+    rec["observed_on"] = pd.to_datetime(rec["observed_on"], errors="coerce").dt.date
+    return rec
+
 
 # Una anotacion = un individuo en una foto. El lado es un atributo de esa fila
 # (un hueso muestra un solo lado por foto), no parte de la clave.
@@ -346,7 +439,39 @@ def build_excel(cfg, out_name: str | None = None, use_triage: bool = False) -> P
     wb = Workbook()
     lg = wb.active
     lg.title = "legend"                       # primera hoja, como en la tabla de Martin
+    mp = wb.create_sheet("map")
     ws = wb.create_sheet("identification")
+    # hojas de registros (A1, A2...), una por corrida, despues de identification (como Martin)
+    rec_sheets = []
+    for c in cfgs:
+        name = c.sheet_name or Path(c.base_dir).name
+        rs = wb.create_sheet(name[:31])
+        rec = records_sheet(c)
+        cols = RECORD_COLUMNS + RECORD_ANNOTATION
+        rs.append(cols)
+        for row in rec[cols].to_dict(orient="records"):
+            rs.append([_clean(row[k]) for k in cols])
+        for cell in rs[1]:
+            cell.font = Font(bold=True)
+        for col_name in ("latitude", "longitude"):
+            col = get_column_letter(cols.index(col_name) + 1)
+            for cell in rs[col][1:]:
+                if isinstance(cell.value, (int, float)):
+                    cell.number_format = "0.0000000000"
+        rs.freeze_panes = "A2"
+        rs.auto_filter.ref = rs.dimensions
+        rec_sheets.append((name, c, len(rec)))
+    mp.append(["sheet", "run", "sector (Martin)", "download rectangle [south, west, north, east]",
+               "records"])
+    for cell in mp[1]:
+        cell.font = Font(bold=True)
+    for name, c, n in rec_sheets:
+        mp.append([name, Path(c.base_dir).name, SECTOR_TEXT.get(name, ""),
+                   json.dumps(list(c.bbox)) if c.bbox else "", n])
+    mp.append([])
+    mp.append(["Note: the download rectangles are approximate. Exact sector borders: Martin's "
+               "slides (SepiaFORhugo21oct2026.pptx, slides 5-12), not yet applied: column 'site' "
+               "is empty."])
     tr = wb.create_sheet("traceability")
     ws.append(headers)
     tr.append(trace_headers)
@@ -369,6 +494,12 @@ def build_excel(cfg, out_name: str | None = None, use_triage: bool = False) -> P
     lg.append(["column", "description"])
     for h in headers + TRACE_COLUMNS:
         lg.append([h, LEGEND.get(h, "")])
+    lg.append([])
+    lg.append(["Record sheets (" + ", ".join(n for n, _, _ in rec_sheets) + "): one row per "
+               "iNaturalist record, columns as exported by iNaturalist + annotation summary", ""])
+    for h in RECORD_COLUMNS + RECORD_ANNOTATION:
+        if h in RECORD_LEGEND:
+            lg.append([h, RECORD_LEGEND[h]])
 
     ex = wb.create_sheet("excluded")
     ex_cols = ["run", "observation_id", "url", "observed_on", "latitude", "longitude",

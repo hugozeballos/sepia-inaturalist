@@ -40,6 +40,9 @@ class Config:
     # Opcionales para scripts/download.py
     ids_file: str | None = None        # lista de IDs (uno por linea): descarga solo esos (piloto)
     ids_excel: str | None = None       # alternativa: IDs desde la columna url de un Excel
+    # Nombre de la hoja de registros de esta corrida en el Excel (como 'A1', 'A2' en la tabla
+    # de Martin). Sin valor: el nombre de la carpeta de la corrida.
+    sheet_name: str | None = None
     # Corridas anteriores cuyos registros NO se vuelven a bajar (p. ej. ["pilot_a1"]): nombre de
     # carpeta junto a base_dir, o ruta completa. Se excluyen al armar las tablas (antes de las fotos).
     skip_ids_from: list[str] | None = None
