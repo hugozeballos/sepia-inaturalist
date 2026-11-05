@@ -55,7 +55,6 @@ VIEWS = ["all", "any_model_differs", "all_models_agree_differ", "ask_martin"]
 NO_VALUE = {"", "not_applicable"}
 # Notas que mencionan a Martin (sin mayusculas ni tildes): martin, martín, marthin
 import re as _re
-import statistics as _st
 import unicodedata as _ud
 from collections import Counter as _Counter
 _MARTIN = _re.compile(r"marth?in")
@@ -122,7 +121,7 @@ def mode_value(values, numeric: bool = False) -> str:
     Moda de los valores de varios prompts para un atributo (votacion por mayoria).
     - No cuentan los vacios ni 'not_applicable' (el prompt no describio ese atributo).
     - Gana el valor con mas votos; si hay empate (p. ej. los 3 distintos): 'unclear'
-      (abstencion). En un atributo numerico (conteo), el empate se resuelve con la mediana.
+      (abstencion). En el conteo (numeric=True), un empate deja la foto sin valor: se salta.
     """
     vals = [v for v in values if v not in NO_VALUE]
     if not vals:
@@ -132,12 +131,7 @@ def mode_value(values, numeric: bool = False) -> str:
     winners = [v for v, c in counts.items() if c == top]
     if len(winners) == 1:
         return winners[0]
-    if numeric:
-        try:
-            return str(int(round(_st.median(float(v) for v in vals))))
-        except ValueError:
-            return ""
-    return "unclear"
+    return "" if numeric else "unclear"
 
 
 def add_mode(t: pd.DataFrame, mode_of: list[str]) -> pd.DataFrame:
@@ -354,12 +348,14 @@ def count_agreement(cfg: Config, versions: list[str], quiet: bool = False,
     base = h.notna()
     cols = [f"n_cuttlebones_visible__{v}" for v in versions if f"n_cuttlebones_visible__{v}" in t]
     for c in cols:
-        base &= pd.to_numeric(t[c], errors="coerce").notna()
+        if c != f"n_cuttlebones_visible__{MODE}":   # la moda sin valor (empate) no saca fotos
+            base &= pd.to_numeric(t[c], errors="coerce").notna()
     rows = []
     for c in cols:
         v = c.split("__", 1)[1]
-        m = pd.to_numeric(t.loc[base, c], errors="coerce")
-        hh = h[base]
+        sub = base & pd.to_numeric(t[c], errors="coerce").notna()
+        m = pd.to_numeric(t.loc[sub, c], errors="coerce")
+        hh = h[sub]
         rows.append({"prompt_version": v, "n": int(len(hh)),
                      "agreement": float((m == hh).mean()) if len(hh) else None,
                      "model_more": int((m > hh).sum()), "model_fewer": int((m < hh).sum())})

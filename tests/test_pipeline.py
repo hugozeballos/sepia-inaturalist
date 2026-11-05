@@ -1215,7 +1215,8 @@ def test_mode_of_top_prompts(tmp_path):
     assert mode_value(["dorsal", "not_applicable", ""]) == "dorsal"           # vota solo uno
     assert mode_value(["dorsal", "ventral", "not_applicable"]) == "unclear"
     assert mode_value(["unclear", "unclear", "dorsal"]) == "unclear"
-    assert mode_value(["1", "2", "3"], numeric=True) == "2"                   # conteo: mediana
+    assert mode_value(["1", "2", "3"], numeric=True) == ""                    # conteo: se salta
+    assert mode_value(["1", "1", "2"], numeric=True) == "1"
     assert mode_value(["", "not_applicable"]) == ""
     cfg = sepia.Config(base_dir=str(tmp_path))
     p = sepia.paths(cfg)
