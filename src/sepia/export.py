@@ -42,15 +42,18 @@ EXCEL_COLUMNS = [
     ("number of barnacles (0; 1-10; 10-100; >100)", "barnacles_n"),
     ("aproximate size of barnacle (small, medium, large)", "barnacle_size"),
     ("possible genus/specie of balano", "barnacle_taxon"),
+    # duplicados marcados por la persona (Hugo, 6 nov): al final, despues de las de Martin
+    ("same photo as (photo ID)", "duplicate_of_photo"),
+    ("same bone as other record (ID:letter)", "possible_duplicate_of"),
 ]
 
 # Columnas de trazabilidad: van en la hoja 'traceability', con las mismas filas y en el mismo
 # orden que 'identification' (que queda con las columnas de Martin, sin agregados).
 # Las primeras tres repiten la clave de la fila para poder unir las dos hojas.
 TRACE_KEY = ["n° observation", "ID", "individual (a,b,c,d,e)"]
-TRACE_COLUMNS = ["run", "prefilled_from", "photo_id", "photo_position", "n_in_photo", "duplicate_of_photo", "crop_box", "label_source", "model_version", "model_prob",
+TRACE_COLUMNS = ["run", "prefilled_from", "photo_id", "photo_position", "n_in_photo", "crop_box", "label_source", "model_version", "model_prob",
                  "reviewed", "annotator", "round", "validation_set",
-                 "possible_duplicate_of", "excluded_reason", "download_date", "notes"]
+                 "excluded_reason", "download_date", "notes"]
 
 # Leyenda (definiciones de la hoja 'legend' de Martin + columnas nuevas)
 LEGEND = {
@@ -78,6 +81,8 @@ LEGEND = {
     "number of barnacles (0; 1-10; 10-100; >100)": "barnacle abundance class",
     "aproximate size of barnacle (small, medium, large)": "approximate barnacle size",
     "possible genus/specie of balano": "if the photograph is good, the genus or species of the Balanidae family can be identified here",
+    "same photo as (photo ID)": "this photo repeats another photo of the SAME record (photo ID of that photo): not annotated again",
+    "same bone as other record (ID:letter)": "the same cuttlebone appears in ANOTHER iNaturalist record (same or other user): observation ID, optionally :letter there. Marked by a person, not by the duplicate search",
     "run": "download run (data folder) the row comes from, e.g. pilot_a1, a2_test",
     "prefilled_from": "empty = blind manual annotation; 'assisted' = the annotation started from an assisted review where the model outputs were visible",
     "photo_id": "iNaturalist photo ID of the row (one row per photo and individual)",

@@ -142,7 +142,8 @@ def test_excel(api, cfg):
     assert ident[:10] == ["n° observation", "ID", "photo ID", "site", "latitude", "longitude",
                           "place", "observed on", "season", "url"]      # Martin + photo ID
     assert "side (cuttlebone)" in ident and "dorsal side (cuttlebone)" not in ident
-    assert ident[-1] == "possible genus/specie of balano"
+    assert ident[-3] == "possible genus/specie of balano"
+    assert ident[-2:] == ["same photo as (photo ID)", "same bone as other record (ID:letter)"]
     assert all(r["season"] is None and r["site"] is None for r in rows)   # pendientes
     assert all(r["label_source"] != "gpt" for r in rows)                  # solo anotacion manual
 
@@ -589,7 +590,7 @@ def test_possible_duplicate(api, cfg):
     app.inputs["possible_duplicate_of"].value = "5:b"
     app._safe(app.on_save)
     r = _excel_rows(sepia.build_excel(cfg, "dup.xlsx"))[1][0]
-    assert r["possible_duplicate_of"] == "5:b"
+    assert r["same bone as other record (ID:letter)"] == "5:b"
 
 
 
@@ -607,7 +608,7 @@ def test_duplicate_photo(api, cfg):
     app._go(1)
     assert "Same as photo 1" in app.table.value
     rows = {r["photo_id"]: r for r in _excel_rows(sepia.build_excel(cfg, "dupph.xlsx"))[1]}
-    assert rows[12]["duplicate_of_photo"] == 11 and rows[12]["reviewed"] is True
+    assert rows[12]["same photo as (photo ID)"] == 11 and rows[12]["reviewed"] is True
     assert rows[12]["individual (a,b,c,d,e)"] is None and rows[11]["number individuals (cuttlebone)"] == 1
     app._safe(app.on_save)                                       # anotar igual la foto 12: deshace
     assert len(sepia.load_events(cfg)["duplicate_photo"]) == 0
