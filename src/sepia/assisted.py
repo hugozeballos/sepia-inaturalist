@@ -46,6 +46,9 @@ MODEL_FIELDS = {
     "erosion": ["1", "2", "3", "unclear"],
     "photo_quality": ["high", "medium", "low"],
 }
+# Opciones de la lista "write" (valor propio de la persona). "" = no elegir nada.
+WRITE_OPTIONS = {f: [""] + (opts if opts else [str(i) for i in range(0, 16)])
+                 for f, opts in MODEL_FIELDS.items()}
 # Evidencia de cada prompt (solo se muestra)
 EVIDENCE = ["side_basis", "side_evidence", "cover", "focus", "quality_evidence", "notes"]
 # Campos manuales: (nombre, opciones o "text", valor por defecto)
@@ -288,7 +291,7 @@ class AssistedApp:
         head = [w.HTML("<b style='display:inline-block;width:170px'></b>")] + [
             w.HTML(f"<b style='display:inline-block;width:100px;text-align:center'>"
                    f"{html.escape(v.replace('photo_traits_', ''))}</b>") for v in self.cols] + [
-            w.HTML("<b style='display:inline-block;width:110px'>write</b>"),
+            w.HTML("<b style='display:inline-block;width:110px'>my value</b>"),
             w.HTML("<b>human</b>")]
         rows = [w.HBox(head)]
         for f in MODEL_FIELDS:
@@ -303,8 +306,11 @@ class AssistedApp:
                 btns.append(b)
                 if v in mv:
                     self.cells[f][v] = b
-            txt = w.Text(value=str(vals.get(f, "")) if src.get(f) == "manual" else "",
-                         placeholder="type", layout=w.Layout(width="110px"))
+            # lista cerrada (no texto libre): asi no se puede escribir un valor invalido
+            prev = str(vals.get(f, "")) if src.get(f) == "manual" else ""
+            txt = w.Dropdown(options=WRITE_OPTIONS[f],
+                             value=prev if prev in WRITE_OPTIONS[f] else "",
+                             layout=w.Layout(width="110px"))
             txt.observe(lambda _, f=f: self._refresh(f), names="value")
             self.manual_inputs[f] = txt
             self.final_html[f] = w.HTML()
@@ -312,8 +318,9 @@ class AssistedApp:
             rows.append(w.HBox([self.labels[f], *btns, txt, self.final_html[f]]))
         legend = ("<small><span style='background:#ffe08a;color:#000;padding:0 4px'>yellow"
                   "</span> = prompts disagree · blue = your choice · click = use that prompt's "
-                  "value · type = your own value (wins over click) · if all prompts agree their "
-                  "value is proposed · nothing is saved until you press Save</small>")
+                  "value · my value = choose your own value from the list (wins over click) · "
+                  "if all prompts agree their value is proposed · nothing is saved until you "
+                  "press Save</small>")
         self.grid.children = rows + [w.HTML(legend)]
         for f in MODEL_FIELDS:
             self._refresh(f, update_defaults=False)
