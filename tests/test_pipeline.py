@@ -1107,3 +1107,22 @@ def test_duplicate_candidates(tmp_path):
     assert len(candidate_pairs(obs, max_km=None)) == 6        # todos los pares del dia 14
     g = candidate_groups(p)
     assert len(g) == 1 and g.iloc[0]["ids"] == [1, 2, 4] and g.iloc[0]["n_users"] == 2
+
+
+def test_assisted_rules(tmp_path):
+    """Anotacion asistida: manual > clic > todos coinciden; archivo fuera de annotations/."""
+    from sepia.assisted import resolve, validate, default_bitemarks, assisted_file
+    m = {"v1": "dorsal", "v2": "dorsal"}
+    assert resolve(m) == ("dorsal", "all_agree")
+    assert resolve({"v1": "unclear", "v2": "unclear"}) == ("unclear", "all_agree")
+    assert resolve({"v1": "dorsal", "v2": "ventral"}) == ("", "")
+    assert resolve({"v1": "dorsal", "v2": ""}) == ("", "")                 # falta un prompt
+    assert resolve({"v1": "dorsal", "v2": "ventral"}, click="v2") == ("ventral", "click:v2")
+    assert resolve(m, click="v1", manual=" ventral ") == ("ventral", "manual")
+    assert validate("side", "dorsal") is None and validate("side", "dorsl")
+    assert validate("n_cuttlebones_visible", "2") is None and validate("n_cuttlebones_visible", "x")
+    assert default_bitemarks("dorsal") == "no" and default_bitemarks("ventral") == "yes"
+    assert default_bitemarks("unclear") == ""
+    cfg = sepia.Config(base_dir=str(tmp_path))
+    f = assisted_file(cfg, "HZ")
+    assert f.parent.name == "annotations_assisted" and f.parent != sepia.paths(cfg)["annotations"]
