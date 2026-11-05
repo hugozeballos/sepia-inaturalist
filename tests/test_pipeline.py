@@ -1126,3 +1126,34 @@ def test_assisted_rules(tmp_path):
     cfg = sepia.Config(base_dir=str(tmp_path))
     f = assisted_file(cfg, "HZ")
     assert f.parent.name == "annotations_assisted" and f.parent != sepia.paths(cfg)["annotations"]
+
+
+def test_annotation_prefill_from_assisted(api, cfg):
+    """AnnotationApp(prefill='assisted'): parte con lo de la asistida; marca prefilled_from."""
+    pytest.importorskip("ipywidgets")
+    from sepia.assisted import assisted_file
+    _ready(cfg)
+    f = assisted_file(cfg, "HZ")
+    sepia.append_jsonl({"observation_id": 1, "photo_id": 11, "position": 1, "individual": "a",
+                        "n_cuttlebones_visible": 1, "state": "cuttlebone", "side": "ventral",
+                        "erosion": 2, "photo_quality": "medium", "bitemarks": "yes",
+                        "epibionts": "no", "certainty": 1, "notes": "",
+                        "saved_at": "2026-11-05T10:00:00+00:00"}, f)
+    sepia.append_jsonl({"observation_id": 1, "photo_id": 12, "position": 2, "individual": None,
+                        "n_cuttlebones_visible": 3, "needs_manual_annotation": True,
+                        "saved_at": "2026-11-05T10:01:00+00:00"}, f)
+    app = sepia.AnnotationApp(cfg, annotator="HZ", boxes=False, prefill="assisted")
+    assert app.row["photo_id"] == 11
+    v = app.inputs
+    assert (v["side"].value, v["erosion"].value, v["photo_quality"].value,
+            v["bitemarks"].value) == ("ventral", 2, "medium", "yes")
+    assert "Prefilled" in app.table.value
+    app._safe(app.on_save_next)
+    lines = sepia.read_jsonl(sepia.annotate.annotation_file(cfg, "HZ"))
+    ind = lines[lines["kind"] == "individual"].iloc[-1]
+    assert ind["side"] == "ventral" and ind["prefilled_from"] == "assisted"
+    assert app.row["photo_id"] == 12 and app.n_photo.value == 3        # solo el conteo
+    assert app.inputs["side"].value is None                            # el resto a mano
+    plain = sepia.AnnotationApp(cfg, annotator="HZ", boxes=False)      # sin prefill: como antes
+    plain._go(1)
+    assert plain.n_photo.value == 1

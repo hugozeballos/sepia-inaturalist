@@ -165,16 +165,16 @@ def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="milliseconds")
 
 
-def _write(cfg, annotator, kind, record, round_=None):
+def _write(cfg, annotator, kind, record, round_=None, extra=None):
     line = {"schema_version": SCHEMA_VERSION, "kind": kind, **record,
             "annotator": annotator, "label_source": "annotator", "round": round_,
-            "saved_at": _now()}
+            **(extra or {}), "saved_at": _now()}
     append_jsonl(line, annotation_file(cfg, annotator))
     return line
 
 
 def save_individual(cfg, annotator, observation_id, photo_id, individual, values, round_=None,
-                    crop_box=None):
+                    crop_box=None, extra=None):
     """
     Guarda (o corrige) un individuo en una foto. values: dict con campos de FIELDS.
     crop_box (opcional): recuadro relativo {x0, y0, x1, y1}, ver to_crop_box.
@@ -183,7 +183,7 @@ def save_individual(cfg, annotator, observation_id, photo_id, individual, values
     return _write(cfg, annotator, "individual",
                   {"observation_id": int(observation_id), "photo_id": int(photo_id),
                    "individual": individual, "deleted": False, **values,
-                   "crop_box": crop_box}, round_)
+                   "crop_box": crop_box}, round_, extra)
 
 
 def delete_individual(cfg, annotator, observation_id, photo_id, individual, round_=None):
@@ -204,7 +204,8 @@ def mark_duplicate_photo(cfg, annotator, observation_id, photo_id, of_photo_id, 
                    "duplicate_of_photo": None if of_photo_id is None else int(of_photo_id)}, round_)
 
 
-def save_photo_count(cfg, annotator, observation_id, photo_id, n_in_photo, round_=None):
+def save_photo_count(cfg, annotator, observation_id, photo_id, n_in_photo, round_=None,
+                     extra=None):
     """
     Numero de huesos (individuos) que SE VEN en la foto, anotados o no en detalle.
     Sirve para comparar con el conteo por foto del triaje.
@@ -214,7 +215,7 @@ def save_photo_count(cfg, annotator, observation_id, photo_id, n_in_photo, round
         raise ValueError("individuals in photo must be >= 0")
     return _write(cfg, annotator, "photo_info",
                   {"observation_id": int(observation_id), "photo_id": int(photo_id),
-                   "n_in_photo": n}, round_)
+                   "n_in_photo": n}, round_, extra)
 
 
 def mark_empty_photo(cfg, annotator, observation_id, photo_id, empty=True, round_=None):
@@ -403,9 +404,22 @@ class AnnotationApp:
     """
 
     def __init__(self, cfg: Config, annotator: str, round_=None, ids=None, image_px=1024,
-                 image_width="480px", image_height="560px", thumb_px="140px", boxes=True):
+                 image_width="480px", image_height="560px", thumb_px="140px", boxes=True,
+                 prefill: str | None = None):
+        """
+        prefill="assisted": en fotos SIN anotacion manual, el formulario parte con lo guardado en
+        la anotacion asistida (annotations_assisted/<anotador>.jsonl). La letra la pone la
+        persona. Lo guardado lleva prefilled_from='assisted' (no es anotacion a ciegas).
+        """
         import ipywidgets as w
         self.w, self.cfg, self.annotator, self.round = w, cfg, annotator, round_
+        self.prefill = {}
+        if prefill == "assisted":
+            from .assisted import load_assisted
+            a = load_assisted(cfg, annotator)
+            self.prefill = {int(r["photo_id"]): r for r in a.to_dict("records")} if len(a) else {}
+        elif prefill is not None:
+            raise ValueError("prefill must be None or 'assisted'")
         self.queue = work_queue(cfg, ids)
         if self.queue.empty:
             raise RuntimeError("No hay fotos: correr la descarga (tables y photos) primero")
@@ -733,7 +747,17 @@ class AnnotationApp:
                 for l in letters] + [(f"{new} (new)", new)]
         info = self.events["photo_info"]
         saved_n = info.loc[(info["observation_id"] == oid) & (info["photo_id"] == pid), "n_in_photo"]
-        self.n_photo.value = int(saved_n.iloc[0]) if len(saved_n) else (0 if is_empty else 1)
+        pre = self._prefill_row()
+        if len(saved_n):
+            self.n_photo.value = int(saved_n.iloc[0])
+        elif pre is not None and pre.get("n_cuttlebones_visible") is not None:
+            self.n_photo.value = int(pre["n_cuttlebones_visible"])
+        else:
+            self.n_photo.value = 0 if is_empty else 1
+        if pre is not None and not len(here):
+            self.table.value += ("<div style='background:#d1ecf1;color:#000;padding:3px 8px;"
+                                 "margin:4px 0'>Prefilled from the assisted annotation: check "
+                                 "it, choose the letter and save</div>")
         self.letter.options = opts
         self._render_boxes(here, opts)
         self.letter.value = sorted(here_letters)[0] if here_letters else new
@@ -743,6 +767,16 @@ class AnnotationApp:
         self._load_letter()
         if not keep_msg:
             self.msg.value = ""
+
+    def _prefill_row(self):
+        """Linea de la anotacion asistida para esta foto, si se usa prefill y no hay manual."""
+        if not self.prefill:
+            return None
+        pid = int(self.row["photo_id"])
+        d = self.events["individual"]
+        if len(d) and (d["photo_id"] == pid).any():
+            return None                                  # lo manual gana
+        return self.prefill.get(pid)
 
     def _apply_defaults(self):
         """Hueso nuevo: sugiere 'no' en picoteo y epibiontes si estan vacios."""
@@ -770,6 +804,11 @@ class AnnotationApp:
             vals = {"state": other.iloc[-1].get("state")} if len(other) else {}
             if vals.get("state") is None or vals.get("state") != vals.get("state"):
                 vals["state"] = DEFAULT_STATE          # individuo nuevo: hueso por defecto
+            pre = self._prefill_row()
+            if pre is not None and pre.get("individual") is not None:
+                # foto revisada en la asistida (1 hueso): parte con esos valores
+                vals.update({k: (None if pre.get(k) == "" else pre.get(k))
+                             for k in FIELD_NAMES if k in pre})
         self.crop.value = format_crop_box(vals.get("crop_box"))   # recuadro guardado (o vacio)
         if self.bbox is not None:
             self.draw_btn.value = False
@@ -824,7 +863,7 @@ class AnnotationApp:
                                  None, self.round)
         save_individual(self.cfg, self.annotator, r["observation_id"], r["photo_id"],
                         self.letter.value, vals, self.round,
-                        crop_box=parse_crop_box(self.crop.value))
+                        crop_box=parse_crop_box(self.crop.value), extra=self._prefill_mark())
         self._save_count()
         letter = self.letter.value
         self._reload()
@@ -844,7 +883,13 @@ class AnnotationApp:
                         (info["photo_id"] == r["photo_id"]), "n_in_photo"]
         if not len(prev) or int(prev.iloc[0]) != int(self.n_photo.value):
             save_photo_count(self.cfg, self.annotator, r["observation_id"], r["photo_id"],
-                             self.n_photo.value, self.round)
+                             self.n_photo.value, self.round, extra=self._prefill_mark())
+
+    def _prefill_mark(self):
+        """Marca para lo guardado en una foto que vino prellenada desde la asistida."""
+        if self.prefill and int(self.row["photo_id"]) in self.prefill:
+            return {"prefilled_from": "assisted"}
+        return None
 
     def on_duplicate(self):
         """Marca la foto como repetida de otra del registro y pasa a la siguiente."""
