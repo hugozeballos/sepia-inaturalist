@@ -13,7 +13,11 @@ Otros campos (estado, picoteo, epibiontes, certeza, notas, picorocos) se llenan 
 valores por defecto: estado cuttlebone, epibiontes no, certeza 1, picoteo segun el lado
 (dorsal -> no, ventral -> yes). Si no se tocan, su source es "default".
 
-Solo fotos con 1 hueso. Si algun prompt ve 1 hueso pero el conteo final no es 1, se guarda
+Triaje (cfg.triage): su conteo por foto es una columna mas en la fila del conteo (cuenta para
+"todos coinciden" y se puede clicar); el estado del registro segun el triaje se muestra arriba
+y es el valor por defecto del estado.
+
+Solo fotos con 1 hueso. Si algun prompt (o el triaje) ve 1 hueso pero el conteo final no es 1, se guarda
 solo el conteo y la foto queda para anotarla despues en AnnotationApp.
 
 Archivo aparte: annotations_assisted/<anotador>.jsonl (una linea por foto, vale la ultima).
@@ -58,6 +62,30 @@ MANUAL_FIELDS = [
 ]
 BARNACLE = {"taxonomic_groups", "barnacles_n", "barnacle_size", "barnacle_taxon"}
 BITEMARKS_BY_SIDE = {"dorsal": "no", "ventral": "yes"}
+TRIAGE = "triage"
+# contenido del triaje -> estado de la anotacion
+TRIAGE_STATE = {"cuttlebone": "cuttlebone", "live_animal": "live animal", "egg_case": "egg case"}
+
+
+def triage_by_photo(cfg: Config) -> tuple[dict, dict]:
+    """
+    Resultados del triaje (cfg.triage): ({(observation_id, position): {n, content}},
+    {observation_id: datos del registro}). Vacios si no hay triaje.
+    """
+    if not cfg.triage:
+        return {}, {}
+    from .triage import load_triage
+    t = cfg.triage
+    tri = load_triage(cfg, t["provider"], t["model"], t.get("prompt_version"))
+    photos, records = {}, {}
+    for _, r in tri.iterrows():
+        oid = int(r["observation_id"])
+        records[oid] = {k: r.get(k) for k in ("record_state", "n_cuttlebones", "confidence",
+                                               "count_possible", "fragments_present", "notes")}
+        for ph in (r.get("photos") or []):
+            photos[(oid, int(ph["photo_index"]))] = {"n": ph.get("n_cuttlebones_visible"),
+                                                     "content": ph.get("content")}
+    return photos, records
 NO_VALUE = {"", "not_applicable"}
 
 
@@ -117,7 +145,12 @@ class AssistedApp:
         self.thumb_px = thumb_px
         self._cache = {}
         self.all_photos = review_table(cfg, versions)
-        n_cols = [f"n_cuttlebones_visible__{v}" for v in versions
+        self.tri_photo, self.tri_record = triage_by_photo(cfg)
+        self.cols = versions + ([TRIAGE] if self.tri_photo else [])
+        self.all_photos[f"n_cuttlebones_visible__{TRIAGE}"] = [
+            (self.tri_photo.get((int(o), int(ps))) or {}).get("n")
+            for o, ps in zip(self.all_photos["observation_id"], self.all_photos["position"])]
+        n_cols = [f"n_cuttlebones_visible__{v}" for v in self.cols
                   if f"n_cuttlebones_visible__{v}" in self.all_photos]
         one = pd.Series(False, index=self.all_photos.index)
         for c in n_cols:                                   # algun prompt ve 1 hueso
@@ -206,7 +239,10 @@ class AssistedApp:
     # ---- valores ----
     def _model_values(self, field) -> dict:
         r = self.rows.loc[self.i]
-        return {v: _norm(r.get(f"{field}__{v}")) for v in self.versions}
+        out = {v: _norm(r.get(f"{field}__{v}")) for v in self.versions}
+        if field == "n_cuttlebones_visible" and TRIAGE in self.cols:
+            out[TRIAGE] = _norm(r.get(f"{field}__{TRIAGE}"))       # el triaje solo da el conteo
+        return out
 
     def _final(self, field) -> tuple[str, str]:
         return resolve(self._model_values(field), self.clicks.get(field),
@@ -226,6 +262,18 @@ class AssistedApp:
         self.header.value = (f"<h3 style='margin:4px 0'>{self.i + 1}/{len(self.rows)} · "
                              f"<a href='{url}' target='_blank'>{oid}</a> · photo "
                              f"{int(r['position'])} (id {pid}) · {status}</h3>")
+        tr = self.tri_record.get(oid)
+        if tr:
+            tp = self.tri_photo.get((oid, int(r["position"]))) or {}
+            self.header.value += (
+                "<div style='background:#eef;color:#000;padding:3px 8px;margin:2px 0'>"
+                f"<b>Triage</b> · record: {html.escape(_norm(tr.get('record_state')))}, "
+                f"{html.escape(_norm(tr.get('n_cuttlebones')))} bone(s) in the record"
+                f" (count possible: {html.escape(_norm(tr.get('count_possible')))}, "
+                f"confidence {html.escape(_norm(tr.get('confidence')))}) · this photo: "
+                f"{html.escape(_norm(tp.get('content')))}, {html.escape(_norm(tp.get('n')))} visible"
+                + (f" · notes: {html.escape(_norm(tr.get('notes')))}" if tr.get("notes") else "")
+                + "</div>")
         self.msg.value = ""
         self.image.value = self._read(r["file_name"], self.big_dirs)
         self.image_label.value = f"Photo {int(r['position'])}"
@@ -239,19 +287,22 @@ class AssistedApp:
         self.manual_inputs, self.cells, self.final_html, self.labels = {}, {}, {}, {}
         head = [w.HTML("<b style='display:inline-block;width:170px'></b>")] + [
             w.HTML(f"<b style='display:inline-block;width:100px;text-align:center'>"
-                   f"{html.escape(v.replace('photo_traits_', ''))}</b>") for v in self.versions] + [
+                   f"{html.escape(v.replace('photo_traits_', ''))}</b>") for v in self.cols] + [
             w.HTML("<b style='display:inline-block;width:110px'>write</b>"),
             w.HTML("<b>human</b>")]
         rows = [w.HBox(head)]
         for f in MODEL_FIELDS:
             mv = self._model_values(f)
             btns = []
-            for v in self.versions:
-                b = w.Button(description=mv[v] or "—", layout=w.Layout(width="100px"),
-                             disabled=mv[v] in NO_VALUE, tooltip=f"use {v}")
+            self.cells[f] = {}
+            for v in self.cols:
+                val = mv.get(v, "")
+                b = w.Button(description=val or "—", layout=w.Layout(width="100px"),
+                             disabled=val in NO_VALUE, tooltip=f"use {v}")
                 b.on_click(lambda _, f=f, v=v: self._click(f, v))
                 btns.append(b)
-            self.cells[f] = btns
+                if v in mv:
+                    self.cells[f][v] = b
             txt = w.Text(value=str(vals.get(f, "")) if src.get(f) == "manual" else "",
                          placeholder="type", layout=w.Layout(width="110px"))
             txt.observe(lambda _, f=f: self._refresh(f), names="value")
@@ -291,6 +342,9 @@ class AssistedApp:
                     self.touched.add(name)
             else:
                 value = default_bitemarks(side) if name == "bitemarks" else default
+                if name == "state":
+                    tp = self.tri_photo.get((oid, int(r["position"]))) or {}
+                    value = TRIAGE_STATE.get(tp.get("content"), default)
             wid = self.manual[name]
             if opts != "text" and value not in wid.options:
                 value = default if default in wid.options else wid.options[0]
@@ -344,7 +398,7 @@ class AssistedApp:
         mv = self._model_values(field)
         decided = [x for x in mv.values() if x not in NO_VALUE]
         differ = len(set(decided)) > 1 or len(decided) < len(mv)
-        for v, b in zip(self.versions, self.cells[field]):
+        for v, b in self.cells[field].items():
             b.button_style = "info" if v == chosen else ("warning" if differ else "")
         self.labels[field].value = (
             f"<b style='display:inline-block;width:170px;padding:2px 4px;"
@@ -400,6 +454,8 @@ class AssistedApp:
                "sources": {f: final[f][1] for f in fields},
                "model_values": {f: self._model_values(f) for f in MODEL_FIELDS},
                "versions": self.versions, "annotator": self.annotator,
+               "triage_version": (self.cfg.triage or {}).get("prompt_version")
+               if TRIAGE in self.cols else None,
                "label_source": "assisted",
                "needs_manual_annotation": not one,
                "saved_at": dt.datetime.now(dt.timezone.utc).isoformat()}
