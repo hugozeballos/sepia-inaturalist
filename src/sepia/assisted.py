@@ -148,19 +148,22 @@ class AssistedApp:
         self.manual = {}
         for name, opts, _ in MANUAL_FIELDS:
             if opts == "text":
-                wid = w.Text(description=name, layout=w.Layout(width="360px"),
-                             style={"description_width": "120px"})
+                wid = w.Text(description=name, layout=w.Layout(width="315px"),
+                             style={"description_width": "110px"})
             else:
-                wid = w.Dropdown(options=opts, description=name, layout=w.Layout(width="300px"),
-                                 style={"description_width": "120px"})
+                wid = w.Dropdown(options=opts, description=name, layout=w.Layout(width="315px"),
+                                 style={"description_width": "110px"})
             wid.observe(lambda ch, n=name: self._touched(n), names="value")
             self.manual[name] = wid
         self.manual["epibionts"].observe(lambda _: self._barnacle_visibility(), names="value")
         left = w.VBox([self.image_label, self.image, self.strip],
                       layout=w.Layout(width=image_width))
-        right = w.VBox([self.grid, self.evidence,
-                        w.HTML("<b>Manual fields</b>"), *self.manual.values(),
-                        w.HBox([save_b, save_next_b]), self.msg],
+        self.manual_box = w.GridBox(list(self.manual.values()), layout=w.Layout(
+            grid_template_columns="repeat(2, 320px)", grid_gap="2px 8px"))
+        right = w.VBox([self.grid,
+                        w.HTML("<b>Manual fields</b>"), self.manual_box,
+                        w.HBox([save_b, save_next_b]), self.msg,
+                        self.evidence],                 # solo lectura: al final
                        layout=w.Layout(margin="0 0 0 12px"))
         self.box = w.VBox([w.HBox([prev_b, next_b, self.jump, go_b]), self.header,
                            w.HBox([left, right], layout=w.Layout(align_items="flex-start"))])
@@ -233,7 +236,7 @@ class AssistedApp:
         vals = (self.saved or {})
         self.clicks = {f: s.split(":", 1)[1] for f, s in src.items()
                        if f in MODEL_FIELDS and isinstance(s, str) and s.startswith("click:")}
-        self.manual_inputs, self.cells, self.final_html = {}, {}, {}
+        self.manual_inputs, self.cells, self.final_html, self.labels = {}, {}, {}, {}
         head = [w.HTML("<b style='display:inline-block;width:170px'></b>")] + [
             w.HTML(f"<b style='display:inline-block;width:100px;text-align:center'>"
                    f"{html.escape(v.replace('photo_traits_', ''))}</b>") for v in self.versions] + [
@@ -254,11 +257,12 @@ class AssistedApp:
             txt.observe(lambda _, f=f: self._refresh(f), names="value")
             self.manual_inputs[f] = txt
             self.final_html[f] = w.HTML()
-            rows.append(w.HBox([w.HTML(f"<b style='display:inline-block;width:170px'>{f}</b>"),
-                                *btns, txt, self.final_html[f]]))
-        legend = ("<small>click = use that prompt's value · type = your own value (wins over "
-                  "click) · if all prompts agree their value is proposed · nothing is saved "
-                  "until you press Save</small>")
+            self.labels[f] = w.HTML()
+            rows.append(w.HBox([self.labels[f], *btns, txt, self.final_html[f]]))
+        legend = ("<small><span style='background:#ffe08a;color:#000;padding:0 4px'>yellow"
+                  "</span> = prompts disagree · blue = your choice · click = use that prompt's "
+                  "value · type = your own value (wins over click) · if all prompts agree their "
+                  "value is proposed · nothing is saved until you press Save</small>")
         self.grid.children = rows + [w.HTML(legend)]
         for f in MODEL_FIELDS:
             self._refresh(f, update_defaults=False)
@@ -337,11 +341,15 @@ class AssistedApp:
     def _refresh(self, field, update_defaults=True):
         value, source = self._final(field)
         chosen = source.split(":", 1)[1] if source.startswith("click:") else None
-        for v, b in zip(self.versions, self.cells[field]):
-            b.button_style = "info" if v == chosen else ""
         mv = self._model_values(field)
         decided = [x for x in mv.values() if x not in NO_VALUE]
         differ = len(set(decided)) > 1 or len(decided) < len(mv)
+        for v, b in zip(self.versions, self.cells[field]):
+            b.button_style = "info" if v == chosen else ("warning" if differ else "")
+        self.labels[field].value = (
+            f"<b style='display:inline-block;width:170px;padding:2px 4px;"
+            + ("background:#ffe08a;color:#000" if differ else "") + f"'>{field}"
+            + (" ⚠" if differ else "") + "</b>")
         if not value:
             txt = "<b style='color:#b00'>choose or type</b>" if differ else ""
         else:
