@@ -55,7 +55,9 @@ VIEWS = ["all", "any_model_differs", "all_models_agree_differ", "ask_martin"]
 NO_VALUE = {"", "not_applicable"}
 # Notas que mencionan a Martin (sin mayusculas ni tildes): martin, martín, marthin
 import re as _re
+import statistics as _st
 import unicodedata as _ud
+from collections import Counter as _Counter
 _MARTIN = _re.compile(r"marth?in")
 
 
@@ -111,7 +113,47 @@ def rank_versions(cfg: Config, versions: list[str] | None = None, n_top: int = 5
 # 2. Tabla de desacuerdos
 # --------------------------------------------------------------------------
 
-def disagreement_table(cfg: Config, versions: list[str]) -> pd.DataFrame:
+# Version "virtual": la moda de varios prompts (columnas <campo>__mode)
+MODE = "mode"
+
+
+def mode_value(values, numeric: bool = False) -> str:
+    """
+    Moda de los valores de varios prompts para un atributo (votacion por mayoria).
+    - No cuentan los vacios ni 'not_applicable' (el prompt no describio ese atributo).
+    - Gana el valor con mas votos; si hay empate (p. ej. los 3 distintos): 'unclear'
+      (abstencion). En un atributo numerico (conteo), el empate se resuelve con la mediana.
+    """
+    vals = [v for v in values if v not in NO_VALUE]
+    if not vals:
+        return ""
+    counts = _Counter(vals)
+    top = max(counts.values())
+    winners = [v for v, c in counts.items() if c == top]
+    if len(winners) == 1:
+        return winners[0]
+    if numeric:
+        try:
+            return str(int(round(_st.median(float(v) for v in vals))))
+        except ValueError:
+            return ""
+    return "unclear"
+
+
+def add_mode(t: pd.DataFrame, mode_of: list[str]) -> pd.DataFrame:
+    """Agrega las columnas <campo>__mode con la moda de las versiones mode_of."""
+    for f in COMPARE_FIELDS:
+        cols = [f"{f}__{v}" for v in mode_of if f"{f}__{v}" in t]
+        if not cols:
+            continue
+        num = f == "n_cuttlebones_visible"
+        t[f"{f}__{MODE}"] = [mode_value([_norm(x) for x in row], numeric=num)
+                             for row in t[cols].itertuples(index=False)]
+    return t
+
+
+def disagreement_table(cfg: Config, versions: list[str],
+                       mode_of: list[str] | None = None) -> pd.DataFrame:
     """
     Una fila por foto anotada: valores de cada version y de la persona (review_table) y,
     por campo comparado:
@@ -126,7 +168,10 @@ def disagreement_table(cfg: Config, versions: list[str]) -> pd.DataFrame:
     notes_all__human = notas de todos los individuos de la foto; ask_martin = alguna menciona a Martin.
     """
     from .annotate import load_events
-    t = review_table(cfg, versions)
+    real = [v for v in versions if v != MODE]
+    t = review_table(cfg, list(dict.fromkeys(real + list(mode_of or []))))   # sin repetir
+    if mode_of:
+        t = add_mode(t, mode_of)
     t = t[t["n_cuttlebones_visible__human"].notna()].copy()    # solo fotos anotadas
     ind = load_events(cfg)["individual"]
     n_ind = ind.groupby("photo_id").size() if len(ind) else pd.Series(dtype="int64")
@@ -188,7 +233,8 @@ HUMAN_EXTRA_ROWS = {"side": ["unclear"]}
 
 def classification_metrics(cfg: Config, versions: list[str],
                            fields=("side", "erosion", "photo_quality"),
-                           common: bool = True, save: bool = True, quiet: bool = False):
+                           common: bool = True, save: bool = True, quiet: bool = False,
+                           mode_of: list[str] | None = None):
     """
     Por version y campo, contra la anotacion manual (fotos con 1 individuo anotado):
     - n: fotos comparadas. La persona debe haber decidido una clase.
@@ -209,7 +255,9 @@ def classification_metrics(cfg: Config, versions: list[str],
     save=True agrega una linea por version a outputs/metrics/photo_traits_classification_metrics.jsonl.
     """
     say = (lambda *a: None) if quiet else print
-    t = disagreement_table(cfg, versions)
+    if mode_of and MODE not in versions:
+        versions = list(versions) + [MODE]       # mode_of: evaluar tambien la moda
+    t = disagreement_table(cfg, versions, mode_of)
     summary, per_class, mats = [], [], {}
     for f in fields:
         classes = CLASSES[f]
@@ -264,7 +312,8 @@ def classification_metrics(cfg: Config, versions: list[str],
             summary.append(rec)
             if save and n:
                 save_metrics(cfg, "photo_traits_classification", {
-                    "prompt_version": v, "field": f,
+                    "prompt_version": v if v != MODE else f"mode({','.join(mode_of)})",
+                    "field": f,
                     "eval_set": ("common:" if common else "own:") + ",".join(vs),
                     "eval_set_sha": ids_sha(t.loc[sub, "photo_id"].astype(int)),
                     "metrics": {**{k: rec[k] for k in rec if k not in ("prompt_version", "field")},
@@ -291,13 +340,16 @@ def classification_metrics(cfg: Config, versions: list[str],
     return summary, per_class, mats
 
 
-def count_agreement(cfg: Config, versions: list[str], quiet: bool = False) -> pd.DataFrame:
+def count_agreement(cfg: Config, versions: list[str], quiet: bool = False,
+                    mode_of: list[str] | None = None) -> pd.DataFrame:
     """
     Huesos visibles por foto: modelo vs 'Individuals in photo' de la persona, sobre las fotos
     anotadas con resultado en todas las versiones. Devuelve una fila por version
     (n, acuerdo, modelo cuenta de mas, modelo cuenta de menos) e imprime la tabla cruzada.
     """
-    t = disagreement_table(cfg, versions)
+    if mode_of and MODE not in versions:
+        versions = list(versions) + [MODE]
+    t = disagreement_table(cfg, versions, mode_of)
     h = pd.to_numeric(t["n_cuttlebones_visible__human"], errors="coerce")
     base = h.notna()
     cols = [f"n_cuttlebones_visible__{v}" for v in versions if f"n_cuttlebones_visible__{v}" in t]
@@ -413,7 +465,8 @@ class DisagreementApp:
     def __init__(self, cfg: Config, versions: list[str], annotator: str = "HZ",
                  min_disagree: int = 0, field: str = "any", hide_reviewed: bool = False,
                  order: str = "record", view: str = "all", read_only: bool = False,
-                 image_width: str = "560px", thumb_px: str = "130px"):
+                 image_width: str = "560px", thumb_px: str = "130px",
+                 mode_of: list[str] | None = None):
         """
         view: all / any_model_differs / all_models_agree_differ / ask_martin (en estas vistas
         'unclear' cuenta como diferencia). read_only=True: sin veredictos ni botones de guardar.
@@ -423,6 +476,8 @@ class DisagreementApp:
         """
         import ipywidgets as w
         cfgs = list(cfg) if isinstance(cfg, (list, tuple)) else [cfg]
+        if mode_of and MODE not in versions:
+            versions = list(versions) + [MODE]       # columna extra con la moda
         self.w, self.cfg, self.versions, self.annotator = w, cfgs[0], versions, annotator
         self.read_only = read_only
         self.runs = {Path(c.base_dir).name: c for c in cfgs}
@@ -432,10 +487,11 @@ class DisagreementApp:
             big = [base / "1024px", base / "original"]
             self.dirs[name] = (big, [base / "512px"] + big)
         self.thumb_px = thumb_px
-        self.full = pd.concat([disagreement_table(c, versions).assign(run=n)
+        self.full = pd.concat([disagreement_table(c, versions, mode_of).assign(run=n)
                                for n, c in self.runs.items()], ignore_index=True)
         # todas las fotos (tambien sin anotar) para la tira de miniaturas
-        self.all_photos = pd.concat([review_table(c, versions).assign(run=n)
+        self.all_photos = pd.concat([review_table(c, [v for v in versions if v != MODE])
+                                     .assign(run=n)
                                      for n, c in self.runs.items()], ignore_index=True)
         self.individuals = self._load_individuals()
         # fotos cuya anotacion vino prellenada desde la asistida (no es a ciegas)

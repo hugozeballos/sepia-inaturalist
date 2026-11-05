@@ -1204,3 +1204,49 @@ def test_disagreement_app_two_runs(tmp_path):
     assert list(app.rows["photo_id"]) == [11]                 # solo A1 difiere en el lado
     single = DisagreementApp(a1, ["photo_traits_v8"], read_only=True)    # una corrida: igual
     assert len(single.rows) == 1
+
+
+def test_mode_of_top_prompts(tmp_path):
+    """Moda de varios prompts: mayoria; empate -> unclear (conteo: mediana); metricas de la moda."""
+    import json
+    from sepia.disagree import mode_value, classification_metrics, count_agreement, MODE
+    assert mode_value(["dorsal", "dorsal", "ventral"]) == "dorsal"
+    assert mode_value(["dorsal", "ventral", "unclear"]) == "unclear"           # empate
+    assert mode_value(["dorsal", "not_applicable", ""]) == "dorsal"           # vota solo uno
+    assert mode_value(["dorsal", "ventral", "not_applicable"]) == "unclear"
+    assert mode_value(["unclear", "unclear", "dorsal"]) == "unclear"
+    assert mode_value(["1", "2", "3"], numeric=True) == "2"                   # conteo: mediana
+    assert mode_value(["", "not_applicable"]) == ""
+    cfg = sepia.Config(base_dir=str(tmp_path))
+    p = sepia.paths(cfg)
+    photos = [(1, 11, 1), (2, 21, 1)]
+    with open(p["tables"] / "photos.jsonl", "w") as f:
+        for o, ph, pos in photos:
+            f.write(json.dumps({"observation_id": o, "photo_id": ph, "position": pos,
+                                "file_name": f"{o}_{ph}.jpg"}) + "\n")
+    with open(p["annotations"] / "manual_T.jsonl", "w") as f:
+        for o, ph, pos in photos:
+            f.write(json.dumps({"kind": "photo_info", "observation_id": o, "photo_id": ph,
+                                "n_in_photo": 1, "saved_at": "2026-11-01"}) + "\n")
+            f.write(json.dumps({"kind": "individual", "observation_id": o, "photo_id": ph,
+                                "individual": "a", "side": "dorsal", "erosion": 1,
+                                "photo_quality": "high", "saved_at": "2026-11-01"}) + "\n")
+    sides = {"v8": {11: "dorsal", 21: "ventral"}, "v9": {11: "dorsal", 21: "ventral"},
+             "v10": {11: "ventral", 21: "dorsal"}}
+    out = p["base"] / "outputs"
+    out.mkdir(exist_ok=True)
+    for v, sd in sides.items():
+        with open(out / f"photo_traits_gemini_gemini-3.5-flash-lite_photo_traits_{v}.jsonl", "w") as f:
+            for o, ph, pos in photos:
+                f.write(json.dumps({"observation_id": o, "photo_id": ph, "position": pos,
+                                    "error": None, "saved_at": "2026-11-02", "prompt_sha": "x",
+                                    "result": {"n_cuttlebones_visible": 1, "side": sd[ph],
+                                               "erosion": "1", "photo_quality": "high"}}) + "\n")
+    top3 = ["photo_traits_v8", "photo_traits_v9", "photo_traits_v10"]
+    s, pc, m = classification_metrics(cfg, top3, fields=("side",), save=False, quiet=True,
+                                      mode_of=top3)
+    cm = m[(MODE, "side")]
+    assert cm.loc["dorsal", "dorsal"] == 1 and cm.loc["dorsal", "ventral"] == 1   # moda = v8/v9
+    assert s.set_index("prompt_version").loc[MODE, "accuracy"] == 0.5
+    c = count_agreement(cfg, top3, quiet=True, mode_of=top3)
+    assert c.loc[MODE, "agreement"] == 1.0
