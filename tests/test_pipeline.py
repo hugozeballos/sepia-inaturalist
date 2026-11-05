@@ -1073,3 +1073,37 @@ def test_skip_ids_from_other_run(api, tmp_path):
     sepia.download_observations(bad)
     with pytest.raises(FileNotFoundError):
         sepia.build_tables(bad)
+
+
+def test_duplicate_candidates(tmp_path):
+    """Pares del mismo dia con su distancia; grupos (trios); mismo usuario y otro usuario."""
+    from sepia.duplicates import load_runs, candidate_pairs, candidate_groups
+    def run(name, rows):
+        d = tmp_path / name / "tables"
+        d.mkdir(parents=True)
+        sepia.write_jsonl(rows, d / "observations.jsonl")
+    base = {"place_guess": "x", "n_photos": 1, "url": "u", "coordinates_obscured": False}
+    run("r1", [{**base, "observation_id": 1, "observed_on": "2026-02-14", "time_observed_at":
+                "2026-02-14T12:00:00+00:00", "latitude": 56.0, "longitude": -2.0, "user_login": "ana"},
+               {**base, "observation_id": 2, "observed_on": "2026-02-14", "time_observed_at":
+                "2026-02-14T12:20:00+00:00", "latitude": 56.005, "longitude": -2.0, "user_login": "ben"},
+               {**base, "observation_id": 3, "observed_on": "2026-02-15", "time_observed_at": None,
+                "latitude": 56.0, "longitude": -2.0, "user_login": "ana"}])          # otro dia
+    run("r2", [{**base, "observation_id": 4, "observed_on": "2026-02-14", "time_observed_at": None,
+                "latitude": 56.01, "longitude": -2.0, "user_login": "ana"},
+               {**base, "observation_id": 5, "observed_on": "2026-02-14", "time_observed_at": None,
+                "latitude": 57.0, "longitude": -2.0, "user_login": "cam"},          # lejos
+               {**base, "observation_id": 1, "observed_on": "2026-02-14", "time_observed_at": None,
+                "latitude": 56.0, "longitude": -2.0, "user_login": "ana"}])          # repetido
+    cfg = sepia.Config(base_dir=str(tmp_path / "r1"))
+    obs = load_runs(cfg, ["r1", "r2"])
+    assert len(obs) == 5 and obs.loc[obs["observation_id"] == 1, "run"].item() == "r1"
+    p = candidate_pairs(obs, max_km=2)
+    assert {(a, b) for a, b in zip(p["id_a"], p["id_b"])} == {(1, 2), (1, 4), (2, 4)}
+    r12 = p[(p["id_a"] == 1) & (p["id_b"] == 2)].iloc[0]
+    assert abs(r12["distance_km"] - 0.556) < 0.01 and r12["minutes_apart"] == 20
+    assert not r12["same_user"] and p[(p["id_a"] == 1) & (p["id_b"] == 4)]["same_user"].item()
+    assert p["distance_km"].is_monotonic_increasing
+    assert len(candidate_pairs(obs, max_km=None)) == 6        # todos los pares del dia 14
+    g = candidate_groups(p)
+    assert len(g) == 1 and g.iloc[0]["ids"] == [1, 2, 4] and g.iloc[0]["n_users"] == 2
