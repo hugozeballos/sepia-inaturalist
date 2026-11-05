@@ -112,7 +112,7 @@ def test_excel(api, cfg):
     sepia.download_observations(cfg)
     sepia.build_tables(cfg)
     ws = openpyxl.load_workbook(sepia.build_excel(cfg, "a.xlsx"))["identification"]
-    assert ws.max_row == 1 + 14 and ws.cell(2, 4).value == LAT     # 7 registros x 2 fotos
+    assert ws.max_row == 1 + 14 and ws.cell(2, 5).value == LAT     # 7 registros x 2 fotos
     assert not any(isinstance(c.value, str) and c.value.startswith("=")
                    for row in ws.iter_rows() for c in row)
 
@@ -133,15 +133,16 @@ def test_excel(api, cfg):
     r1 = [r for r in rows if r["ID"] == 1]
     assert len(rows) == 15 and len(r1) == 3
     assert [(r["photo_id"], r["individual (a,b,c,d,e)"]) for r in r1] == [(11, "a"), (12, "a"), (12, "b")]
-    ventral = [r for r in r1 if r["ventral side (cuttlebone)"] == 1]
+    ventral = [r for r in r1 if r["side (cuttlebone)"] == "ventral"]
     assert len(ventral) == 1 and ventral[0]["¿bitemarks?"] == "yes"   # vale la ultima
     assert all(r["number individuals (cuttlebone)"] == 2 for r in r1)  # letras distintas, no filas
     assert all(r["latitude"] == LAT for r in r1)                       # coordenadas por join
     assert wb.sheetnames == ["legend", "identification", "traceability", "excluded"]
     ident = [c.value for c in wb["identification"][1]]
-    assert ident[:9] == ["n° observation", "ID", "site", "latitude", "longitude", "place",
-                         "observed on", "season", "url"]                # como la tabla de Martin
-    assert "photo_id" not in ident and ident[-1] == "possible genus/specie of balano"
+    assert ident[:10] == ["n° observation", "ID", "photo ID", "site", "latitude", "longitude",
+                          "place", "observed on", "season", "url"]      # Martin + photo ID
+    assert "side (cuttlebone)" in ident and "dorsal side (cuttlebone)" not in ident
+    assert ident[-1] == "possible genus/specie of balano"
     assert all(r["season"] is None and r["site"] is None for r in rows)   # pendientes
     assert all(r["label_source"] != "gpt" for r in rows)                  # solo anotacion manual
 
@@ -382,8 +383,7 @@ def test_annotation_events(api, cfg):
 
     wb, rows = _excel_rows(sepia.build_excel(cfg, "ann.xlsx"))
     r1 = [r for r in rows if r["ID"] == 1]
-    assert [(r["photo_id"], r["dorsal side (cuttlebone)"], r["ventral side (cuttlebone)"]) for r in r1] \
-        == [(11, 1, None), (12, None, 1)]
+    assert [(r["photo ID"], r["side (cuttlebone)"]) for r in r1] == [(11, "dorsal"), (12, "ventral")]
     assert r1[0]["notes"] == "same bone as in record 2?"
     assert all(r["number individuals (cuttlebone)"] == 1 and r["reviewed"] is True for r in r1)
     r21 = [r for r in rows if r["photo_id"] == 21][0]

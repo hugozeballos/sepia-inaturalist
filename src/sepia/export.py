@@ -20,6 +20,7 @@ from .inat import load_tables
 EXCEL_COLUMNS = [
     ("n° observation", "obs_n"),
     ("ID", "observation_id"),
+    ("photo ID", "photo_id"),
     ("site", "site"),
     ("latitude", "latitude"),
     ("longitude", "longitude"),
@@ -32,8 +33,7 @@ EXCEL_COLUMNS = [
     ("state", "state"),
     ("number of pictures in record", "n_photos"),
     ("number individuals (cuttlebone)", "n_cuttlebones"),
-    ("dorsal side (cuttlebone)", "dorsal_side"),
-    ("ventral side (cuttlebone)", "ventral_side"),
+    ("side (cuttlebone)", "side"),
     ("level of erosion", "erosion"),
     ("¿bitemarks?", "bitemarks"),
     ("¿epibionts?", "epibionts"),
@@ -68,8 +68,8 @@ LEGEND = {
     "state": "organism in the form of cuttlebone, eggs, or squid",
     "number of pictures in record": "number of photos in the iNaturalist record",
     "number individuals (cuttlebone)": "number of distinct cuttlebones in the record (distinct letters, not rows)",
-    "dorsal side (cuttlebone)": "1 if this row describes the dorsal side",
-    "ventral side (cuttlebone)": "1 if this row describes the ventral side",
+    "photo ID": "iNaturalist photo ID: the row describes what is visible in this photo",
+    "side (cuttlebone)": "side of the cuttlebone visible in this photo: dorsal, ventral or unclear (one column instead of the two columns 'dorsal side' / 'ventral side')",
     "level of erosion": "1 (almost perfect), 2 (somewhat eroded, with some pieces missing), and 3 (very eroded, at least 10% missing)",
     "¿bitemarks?": "presence of bird peck marks",
     "¿epibionts?": "presence of organisms that adhere to bone",
@@ -257,10 +257,9 @@ def _excel_table(cfg: Config, use_triage: bool = False):
         table.loc[fill, c] = table.loc[fill, f"{c}_gpt"]
     table = table.drop(columns=[c for c in table.columns if c.endswith("_gpt")])
 
-    # side -> las dos columnas del Excel de Martin
-    side = table.get("side", pd.Series(index=table.index, dtype=object))
-    table["dorsal_side"] = (side == "dorsal").map({True: 1, False: None})
-    table["ventral_side"] = (side == "ventral").map({True: 1, False: None})
+    # Lado: UNA columna (dorsal / ventral / unclear), no las dos de Martin (Hugo, 6 nov)
+    if "side" not in table:
+        table["side"] = None
 
     # Pendientes: sector y estacion quedan en blanco (columna presente, como en la tabla de Martin)
     table["season"] = None
