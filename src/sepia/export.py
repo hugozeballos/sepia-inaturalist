@@ -32,7 +32,8 @@ EXCEL_COLUMNS = [
     ("photo quality", "photo_quality"),
     ("state", "state"),
     ("number of pictures in record", "n_photos"),
-    ("number individuals (cuttlebone)", "n_cuttlebones"),
+    ("number individuals (cuttlebone)", "n_cuttlebones"),          # en el REGISTRO
+    ("number individuals in photo (cuttlebone)", "n_in_photo"),    # en la FOTO (6 nov)
     ("side (cuttlebone)", "side"),
     ("level of erosion", "erosion"),
     ("¿bitemarks?", "bitemarks"),
@@ -51,7 +52,7 @@ EXCEL_COLUMNS = [
 # orden que 'identification' (que queda con las columnas de Martin, sin agregados).
 # Las primeras tres repiten la clave de la fila para poder unir las dos hojas.
 TRACE_KEY = ["n° observation", "ID", "individual (a,b,c,d,e)"]
-TRACE_COLUMNS = ["run", "prefilled_from", "photo_id", "photo_position", "n_in_photo", "crop_box",
+TRACE_COLUMNS = ["run", "prefilled_from", "photo_id", "photo_position", "crop_box",
                  "label_source", "reviewed", "annotator", "round",
                  "excluded_reason", "download_date", "notes"]
 # (sin model_version, model_prob ni validation_set: el Excel lleva solo anotacion manual; 6 nov)
@@ -71,7 +72,8 @@ LEGEND = {
     "photo quality": "high quality (good quality, not covered by sand or seaweeds), medium quality (most details can be seen, only moderate cover by sand or seaweeds), and low quality (blurry photo or covered by sand or seaweeds, details difficult to distinguish)",
     "state": "organism in the form of cuttlebone, eggs, or squid",
     "number of pictures in record": "number of photos in the iNaturalist record",
-    "number individuals (cuttlebone)": "number of distinct cuttlebones in the record (distinct letters, not rows)",
+    "number individuals (cuttlebone)": "number of distinct cuttlebones in the whole RECORD (distinct letters with state cuttlebone, not rows); same value in all rows of the record",
+    "number individuals in photo (cuttlebone)": "number of cuttlebones visible in THIS PHOTO (annotator's 'Individuals in photo'), annotated in detail or not; a bone counts if at least about half of it is visible",
     "photo ID": "iNaturalist photo ID: the row describes what is visible in this photo",
     "side (cuttlebone)": "side of the cuttlebone visible in this photo: dorsal, ventral or unclear (one column instead of the two columns 'dorsal side' / 'ventral side')",
     "level of erosion": "1 (almost perfect), 2 (somewhat eroded, with some pieces missing), and 3 (very eroded, at least 10% missing)",

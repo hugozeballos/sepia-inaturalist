@@ -546,7 +546,7 @@ def test_photo_count(api, cfg):
     app._safe(app.on_save)
     assert "Note" in app.msg.value                               # 1 anotado > 0 en la foto
     rows = {r["photo_id"]: r for r in _excel_rows(sepia.build_excel(cfg, "cnt.xlsx"))[1]}
-    assert rows[12]["n_in_photo"] == 27 and rows[12]["reviewed"] is True
+    assert rows[12]["number individuals in photo (cuttlebone)"] == 27 and rows[12]["reviewed"] is True
     assert rows[12]["individual (a,b,c,d,e)"] is None
 
 
@@ -1351,4 +1351,4 @@ def test_excel_counts_only_cuttlebones(api, cfg):
     r1 = [r for r in rows if r["ID"] == 1]
     assert all(r["number individuals (cuttlebone)"] == 1 for r in r1)
     r21 = [r for r in rows if r["photo ID"] == 21][0]
-    assert r21["prefilled_from"] == "assisted" and r21["n_in_photo"] == 5
+    assert r21["prefilled_from"] == "assisted" and r21["number individuals in photo (cuttlebone)"] == 5
