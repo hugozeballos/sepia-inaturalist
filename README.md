@@ -51,6 +51,20 @@ logs/              registro de cada paso
 manifest.json      parámetros y fecha de descarga (para el párrafo de métodos)
 ```
 
+## Notebooks (`notebooks/`)
+
+| Notebook | Para qué |
+|---|---|
+| `01_descarga_y_modelos` | bajar una corrida de iNaturalist y correr el triaje y los 4 prompts |
+| `02_anotacion` | anotar: asistida (elegir el mejor valor de los modelos), revisión con letra y recuadro, o a ciegas |
+| `03_revision_y_metricas` | revisión interna: ranking de prompts, moda, métricas, persona vs modelos, duplicados |
+| `04_revision_con_martin` | qué se hizo, resultados, fotos, preguntas y Excel, para revisar con Martin |
+| `05_entrega_excel` | generar y revisar el Excel de entrega |
+
+La versión oficial de cada notebook es la del repo, sin salidas. Para trabajar: abrirlo desde GitHub en Colab
+(rama `main`), *Archivo → Guardar una copia en Drive* y moverla a `MyDrive/sepia-inaturalist/notebooks/`
+con la fecha en el nombre. Las copias con resultados no se suben a GitHub.
+
 ## Uso en Colab
 
 ```python
