@@ -93,6 +93,7 @@ NO_VALUE = {"", "not_applicable"}
 
 
 def assisted_file(cfg: Config, annotator: str) -> Path:
+    """Archivo de la anotacion asistida: annotations_assisted/<anotador>.jsonl."""
     d = paths(cfg)["base"] / "annotations_assisted"
     d.mkdir(parents=True, exist_ok=True)
     return d / f"{annotator}.jsonl"
@@ -132,6 +133,7 @@ def validate(field: str, value: str) -> str | None:
 
 
 def default_bitemarks(side: str) -> str:
+    """Picoteo por defecto segun el lado final: dorsal -> no, ventral -> yes, otro -> vacio."""
     return BITEMARKS_BY_SIDE.get(side, "")
 
 
@@ -140,6 +142,7 @@ class AssistedApp:
 
     def __init__(self, cfg: Config, versions: list[str], annotator: str = "HZ",
                  image_width: str = "520px", thumb_px: str = "120px"):
+        """Arma la lista de fotos (alguna version o el triaje ve 1 hueso) y los widgets."""
         import ipywidgets as w
         self.w, self.cfg, self.versions, self.annotator = w, cfg, versions, annotator
         base = paths(cfg)["base"] / "photos"
@@ -408,11 +411,11 @@ class AssistedApp:
         for v, b in self.cells[field].items():
             b.button_style = "info" if v == chosen else ("warning" if differ else "")
         self.labels[field].value = (
-            f"<b style='display:inline-block;width:170px;padding:2px 4px;"
+            "<b style='display:inline-block;width:170px;padding:2px 4px;"
             + ("background:#ffe08a;color:#000" if differ else "") + f"'>{field}"
             + (" ⚠" if differ else "") + "</b>")
         if not value:
-            txt = "<b style='color:#b00'>choose or type</b>" if differ else ""
+            txt = "<b style='color:#b00'>choose a value</b>" if differ else ""
         else:
             err = validate(field, value) if source == "manual" else None
             color = "#b00" if err else "#000"
@@ -442,7 +445,7 @@ class AssistedApp:
         errors = []
         count, csrc = final["n_cuttlebones_visible"]
         if not count:
-            errors.append("n_cuttlebones_visible: choose or type")
+            errors.append("n_cuttlebones_visible: choose a value")
         elif csrc == "manual" and validate("n_cuttlebones_visible", count):
             errors.append(validate("n_cuttlebones_visible", count))
         one = count == "1"
@@ -450,7 +453,7 @@ class AssistedApp:
         for f in fields[1:]:
             v, s = final[f]
             if not v:
-                errors.append(f"{f}: choose or type")
+                errors.append(f"{f}: choose a value")
             elif s == "manual" and validate(f, v):
                 errors.append(validate(f, v))
         if errors:
@@ -494,5 +497,6 @@ class AssistedApp:
             self.msg.value = f"<span style='color:#080'>Saved{note}</span>"
 
     def show(self):
+        """Muestra la interfaz en la celda del notebook."""
         from IPython.display import display
         display(self.box)

@@ -211,5 +211,6 @@ class ReviewApp:
                             f"{body}</table>{legend}")
 
     def show(self):
+        """Muestra la interfaz en la celda del notebook."""
         from IPython.display import display
         display(self.box)

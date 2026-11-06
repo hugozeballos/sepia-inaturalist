@@ -57,10 +57,11 @@ NO_VALUE = {"", "not_applicable"}
 import re as _re
 import unicodedata as _ud
 from collections import Counter as _Counter
-_MARTIN = _re.compile(r"marth?in")
+_MARTIN = _re.compile(r"\bmarth?in\b")   # palabra completa: no "martina" ni "martinez"
 
 
 def mentions_martin(text) -> bool:
+    """True si el texto menciona a Martin como palabra (sin mayusculas ni tildes: martin, martín, marthin)."""
     t = _ud.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode().lower()
     return bool(_MARTIN.search(t))
 
@@ -440,6 +441,7 @@ def plot_confusion(mats: dict, field: str, versions: list[str] | None = None):
 # --------------------------------------------------------------------------
 
 def verdict_file(cfg: Config, annotator: str) -> Path:
+    """Archivo de veredictos del revisor: reviews/human_vs_models_<anotador>.jsonl."""
     d = paths(cfg)["base"] / "reviews"
     d.mkdir(parents=True, exist_ok=True)
     return d / f"human_vs_models_{annotator}.jsonl"
@@ -525,9 +527,15 @@ class DisagreementApp:
                                      for n, c in self.runs.items()], ignore_index=True)
         self.individuals = self._load_individuals()
         # fotos cuya anotacion vino prellenada desde la asistida (no es a ciegas)
-        ind = self.individuals
-        self.assisted = (set(ind.loc[ind["prefilled_from"] == "assisted", "photo_id"].astype(int))
-                         if "prefilled_from" in ind else set())
+        from .annotate import load_events
+        self.assisted = set()
+        for c in self.runs.values():                  # individuos y lineas de conteo
+            ev = load_events(c)
+            for k in ("individual", "photo_info"):
+                d = ev[k]
+                if len(d) and "prefilled_from" in d:
+                    self.assisted |= set(d.loc[d["prefilled_from"] == "assisted",
+                                               "photo_id"].astype(int))
         self._cache = {}
 
         n = len(versions)
@@ -871,5 +879,6 @@ class DisagreementApp:
                           f"{n} verdict(s) saved</span>")
 
     def show(self):
+        """Muestra la interfaz en la celda del notebook."""
         from IPython.display import display
         display(self.box)

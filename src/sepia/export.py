@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from .config import Config
-from .io import paths, read_jsonl, _clean
+from .io import paths, _clean
 from .inat import load_tables, load_raw, _coords
 
 
@@ -178,8 +178,8 @@ def records_sheet(cfg: Config) -> pd.DataFrame:
     if len(ind) and "state" in ind:
         states = ind.dropna(subset=["state"]).groupby("observation_id")["state"].agg(
             lambda s: s.iloc[0] if s.nunique() == 1 else "mixed")
-        bones = (ind[ind["state"] == "cuttlebone"].groupby("observation_id")["individual"]
-                 .nunique())
+        bone = ind["state"].isna() | (ind["state"] == "cuttlebone")   # igual que identification
+        bones = ind[bone].groupby("observation_id")["individual"].nunique()
     else:
         states, bones = pd.Series(dtype=object), pd.Series(dtype="int64")
     rec["state (annotated)"] = rec["id"].map(states)
@@ -316,15 +316,31 @@ def _excel_table(cfg: Config, use_triage: bool = False):
             table["annotator"] = table["annotator"].astype(object)
             table.loc[is_empty, "annotator"] = [amap.get(k) for k, e in zip(keys, is_empty) if e]
 
+    # Fotos sin individuo (solo conteo, vacias, repetidas) que vienen del prellenado de la
+    # asistida: la marca prefilled_from esta en su linea de conteo (photo_info)
+    pinfo = events["photo_info"]
+    if len(pinfo) and "prefilled_from" in pinfo:
+        pre = pinfo.dropna(subset=["prefilled_from"]).astype({"photo_id": "int64"})
+        pre = pre.set_index(["observation_id", "photo_id"])["prefilled_from"]
+        if "prefilled_from" not in table:
+            table["prefilled_from"] = None
+        table["prefilled_from"] = table["prefilled_from"].astype(object)
+        no_ind = table["individual"].isna() & table["prefilled_from"].isna()
+        keys = list(zip(table["observation_id"], table["photo_id"]))
+        table.loc[no_ind, "prefilled_from"] = [pre.get(k) for k, e in zip(keys, no_ind) if e]
+
     # Filas anotadas por una persona: revisadas
     if "label_source" in table and "reviewed" in table:
         table.loc[(table["label_source"] == "annotator") & table["reviewed"].isna(), "reviewed"] = True
 
-    # n_cuttlebones anotado = letras distintas del registro (no filas), salvo que
-    # el anotador lo haya escrito explicitamente
+    # n_cuttlebones anotado = letras distintas del registro con estado 'cuttlebone' (no filas;
+    # vivos y puestas no cuentan), salvo que el anotador lo haya escrito explicitamente.
+    # Lineas antiguas sin estado se cuentan como hueso (estado por defecto de la interfaz).
     if "n_cuttlebones" not in table:
         table["n_cuttlebones"] = None
-    letters = table.groupby("observation_id")["individual"].nunique()
+    st = table["state"] if "state" in table else pd.Series(None, index=table.index, dtype=object)
+    is_bone = st.isna() | (st == "cuttlebone")
+    letters = table[is_bone].groupby("observation_id")["individual"].nunique()
     derived = table["observation_id"].map(letters).where(lambda x: x > 0)
     table["n_cuttlebones"] = table["n_cuttlebones"].astype(object)
     fill = table["n_cuttlebones"].isna() & derived.notna()

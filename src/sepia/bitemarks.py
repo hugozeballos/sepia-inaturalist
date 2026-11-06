@@ -40,6 +40,7 @@ CHECKS = ("is_sand_or_debris", "is_broken_edge", "is_crack", "is_erosion_pit",
 
 
 class Candidate(BaseModel):
+    """Una posible marca de picoteo descrita por el modelo, con sus preguntas de descarte."""
     location: Literal["edge", "surface"]
     shape: Shape
     edges: Literal["sharp", "worn"]
@@ -52,6 +53,7 @@ class Candidate(BaseModel):
 
 
 class BitemarksResult(BaseModel):
+    """Respuesta del modelo para una foto: hueso evaluable y candidatas."""
     n_cuttlebones_visible: int
     assessable: Literal["yes", "no", "not_applicable"]
     candidates: list[Candidate]
@@ -113,6 +115,7 @@ def _settings(cfg: Config, prompt_version: str | None = None) -> dict:
 
 
 def output_path(cfg: Config, provider: str, model: str, prompt_version: str) -> Path:
+    """Archivo de salida de esta version: outputs/bitemarks_<proveedor>_<modelo>_<version>.jsonl."""
     return model_output_path(cfg, KIND, provider, model, prompt_version)
 
 

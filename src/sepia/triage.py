@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
-import json
 import os
 import time
 from importlib import resources
@@ -41,12 +40,14 @@ RecordState = Literal["cuttlebone", "live_animal", "egg_case", "mixed", "other",
 
 
 class PhotoResult(BaseModel):
+    """Resultado del triaje para una foto: contenido y huesos visibles."""
     photo_index: int = Field(description="1-based index, as labelled 'Photo N'")
     content: PhotoContent
     n_cuttlebones_visible: int = Field(description="cuttlebones visible in this photo")
 
 
 class TriageResult(BaseModel):
+    """Resultado del triaje para un registro (esquema que el modelo debe devolver)."""
     photos: list[PhotoResult]
     record_state: RecordState
     n_cuttlebones: int
@@ -115,6 +116,7 @@ class GeminiProvider:
 
     def __init__(self, model: str, temperature: float = 0.0,
                  thinking_level: str | None = "low", timeout_s: int = 120):
+        """Lee la clave GEMINI_API_KEY del entorno y prepara el cliente de google-genai."""
         from google import genai
         from google.genai import types
         key = os.environ.get("GEMINI_API_KEY")
@@ -167,6 +169,7 @@ class GeminiProvider:
 
 
 def make_provider(provider: str, model: str, temperature: float = 0.0, **opts):
+    """Crea el proveedor de modelo indicado en la configuracion (por ahora solo 'gemini')."""
     if provider == "gemini":
         return GeminiProvider(model, temperature,
                               thinking_level=opts.get("thinking_level", "low"),
@@ -251,7 +254,7 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None,
                 try:
                     result, raw, usage = provider.classify(images, prompt)
                     break
-                except RateLimited as e:
+                except RateLimited:
                     if attempt == 3:
                         raise
                     wait = 30 * 2 ** attempt

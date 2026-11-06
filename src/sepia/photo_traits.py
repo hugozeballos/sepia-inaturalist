@@ -45,6 +45,7 @@ SideBasis = Literal["direct", "lines_rule", "inferred_same_bone", "inferred_othe
 
 
 class PhotoTraits(BaseModel):
+    """Respuesta por foto de v1-v4: huesos visibles, lado, erosion, calidad (v2-) y notas."""
     n_cuttlebones_visible: int
     side: Side
     erosion: Erosion
@@ -59,6 +60,7 @@ class PhotoTraitsInRecord(PhotoTraits):
 
 
 class RecordPhotoTraits(BaseModel):
+    """Respuesta por registro de v5-v6: una entrada por foto."""
     photos: list[PhotoTraitsInRecord]
 
 
@@ -69,6 +71,7 @@ class PhotoTraitsInRecordV7(PhotoTraitsInRecord):
 
 
 class RecordPhotoTraitsV7(BaseModel):
+    """Respuesta por registro de v7, v8, v12 y v13 (con side_evidence)."""
     photos: list[PhotoTraitsInRecordV7]
 
 
@@ -83,6 +86,7 @@ class PhotoTraitsInRecordV9(PhotoTraitsInRecordV7):
 
 
 class RecordPhotoTraitsV9(BaseModel):
+    """Respuesta por registro de v9 (con bands_rule)."""
     photos: list[PhotoTraitsInRecordV9]
 
 
@@ -131,19 +135,23 @@ def side_from_signs(signs, photo_quality=None) -> str:
 
 
 class PhotoTraitsInRecordV10(PhotoTraitsInRecordV7):
+    """Una foto en v10: + rasgos del lado en lista cerrada (side_signs, literatura)."""
     side_basis: SideBasisV10
     side_signs: list[SignV10]
 
 
 class RecordPhotoTraitsV10(BaseModel):
+    """Respuesta por registro de v10."""
     photos: list[PhotoTraitsInRecordV10]
 
 
 class PhotoTraitsInRecordV11(PhotoTraitsInRecordV10):
+    """Una foto en v11: rasgos de v10 + rasgos de la guia de Martin."""
     side_signs: list[SignV11]
 
 
 class RecordPhotoTraitsV11(BaseModel):
+    """Respuesta por registro de v11."""
     photos: list[PhotoTraitsInRecordV11]
 
 
@@ -171,6 +179,7 @@ class PhotoTraitsInRecordV14(BaseModel):
 
 
 class RecordPhotoTraitsV14(BaseModel):
+    """Respuesta por registro de v14 (calidad descrita con cover/focus)."""
     photos: list[PhotoTraitsInRecordV14]
 
 

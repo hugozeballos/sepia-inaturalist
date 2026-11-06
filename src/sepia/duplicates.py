@@ -106,6 +106,7 @@ def candidate_groups(pairs: pd.DataFrame) -> pd.DataFrame:
     parent = {}
 
     def find(x):
+        """Raiz del grupo de x (union-find con compresion de caminos)."""
         parent.setdefault(x, x)
         while parent[x] != x:
             parent[x] = parent[parent[x]]

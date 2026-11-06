@@ -1,11 +1,7 @@
 """Configuracion de una corrida. Se carga desde un YAML en configs/."""
 from __future__ import annotations
 
-import json
-import datetime as dt
-from pathlib import Path
-
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass
 
 API_URL = "https://api.inaturalist.org/v1/observations"
 SEPIA_OFFICINALIS = 151429  # taxon_id de Sepia officinalis en iNaturalist
@@ -74,7 +70,8 @@ class Config:
 def load_config(path: str) -> Config:
     """Lee un YAML de configs/ y devuelve un Config."""
     import yaml
-    data = yaml.safe_load(open(path, encoding="utf-8"))
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
     if data.get("bbox") is not None:
         data["bbox"] = tuple(data["bbox"])
     if data.get("resize") is not None:

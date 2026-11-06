@@ -157,6 +157,7 @@ def crop_photo(path, box: dict):
 # --------------------------------------------------------------------------
 
 def annotation_file(cfg: Config, annotator: str) -> Path:
+    """Archivo de anotaciones del anotador: annotations/manual_<anotador>.jsonl."""
     return paths(cfg)["annotations"] / f"manual_{annotator}.jsonl"
 
 
@@ -187,6 +188,7 @@ def save_individual(cfg, annotator, observation_id, photo_id, individual, values
 
 
 def delete_individual(cfg, annotator, observation_id, photo_id, individual, round_=None):
+    """Borra un individuo de una foto (agrega una linea con deleted=True; se deshace guardandolo de nuevo)."""
     return _write(cfg, annotator, "individual",
                   {"observation_id": int(observation_id), "photo_id": int(photo_id),
                    "individual": individual, "deleted": True}, round_)
@@ -219,6 +221,7 @@ def save_photo_count(cfg, annotator, observation_id, photo_id, n_in_photo, round
 
 
 def mark_empty_photo(cfg, annotator, observation_id, photo_id, empty=True, round_=None):
+    """Marca (o desmarca, empty=False) una foto como revisada y sin individuos."""
     return _write(cfg, annotator, "empty_photo",
                   {"observation_id": int(observation_id), "photo_id": int(photo_id),
                    "empty": bool(empty)}, round_)
@@ -322,6 +325,7 @@ def first_pending(queue: pd.DataFrame, events) -> int | None:
 
 
 def letters_in_record(events, observation_id) -> list[str]:
+    """Letras de individuo ya usadas en el registro, en orden."""
     d = events["individual"]
     return sorted(set(d.loc[d["observation_id"] == observation_id, "individual"].dropna()))
 
@@ -384,6 +388,7 @@ def _make_key_listener():
         return None
 
     class KeyListener(anywidget.AnyWidget):
+        """Widget invisible que envia al kernel las teclas de los atajos (Alt+S, Alt+A, Alt+N, Alt+P; ver SHORTCUTS)."""
         _esm = _KEYS_ESM
         codes = traitlets.List(traitlets.Unicode()).tag(sync=True)
         tick = traitlets.Int(0).tag(sync=True)      # cambia al pasar de foto -> volver arriba
@@ -494,6 +499,7 @@ class AnnotationApp:
         self.jump = w.Text(placeholder="iNaturalist ID", layout=w.Layout(width="220px"))
 
         def btn(text, cb, style=""):
+            """Boton de la columna de acciones, con su funcion protegida por _safe."""
             b = w.Button(description=text, button_style=style, layout=w.Layout(width="100%"))
             b.on_click(lambda _: self._safe(cb))
             return b
@@ -565,6 +571,7 @@ class AnnotationApp:
 
     # --- utilidades ---
     def show(self):
+        """Muestra la interfaz en la celda del notebook."""
         from IPython.display import display
         display(self.box)
 
@@ -576,6 +583,7 @@ class AnnotationApp:
 
     @property
     def row(self):
+        """Fila de la cola de trabajo de la foto actual."""
         return self.queue.iloc[self.i]
 
     def _reload(self):
@@ -861,6 +869,7 @@ class AnnotationApp:
 
     # --- acciones ---
     def on_save(self):
+        """Guarda el individuo elegido en la foto actual (y el conteo de la foto si cambio)."""
         vals = self._values()
         if vals["state"] is None:
             raise ValueError("choose a state first")
@@ -933,6 +942,7 @@ class AnnotationApp:
         self.msg.value = msg + " · next: new individual"
 
     def on_save_next(self):
+        """Guarda y pasa a la foto siguiente."""
         self.on_save()
         if self.i + 1 < len(self.queue):
             self._go(self.i + 1)
@@ -941,6 +951,7 @@ class AnnotationApp:
             self.msg.value = "<b style='color:#070'>Saved · this was the last photo</b>"
 
     def on_delete(self):
+        """Borra el individuo elegido de la foto actual."""
         r = self.row
         letter = self.letter.value
         if letter not in set(self._individuals_here()["individual"]):
@@ -951,6 +962,7 @@ class AnnotationApp:
         self.msg.value = f"Deleted individual {letter} from this photo"
 
     def on_empty(self):
+        """Marca la foto actual como sin individuos y pasa a la siguiente."""
         if len(self._individuals_here()):
             raise ValueError("this photo has individuals: delete them first")
         r = self.row
@@ -961,6 +973,7 @@ class AnnotationApp:
         self._go(self.i + 1)
 
     def on_exclude(self):
+        """Excluye el registro actual con el motivo escrito."""
         reason = self.reason.value.strip()
         if not reason:
             raise ValueError("write the exclusion reason")
@@ -972,6 +985,7 @@ class AnnotationApp:
         self.msg.value = f"Record {oid} excluded"
 
     def on_unexclude(self):
+        """Deshace la exclusion del registro actual."""
         exclude_record(self.cfg, self.annotator, self.row["observation_id"], "", self.round)
         self._reload()
         self._render()
@@ -983,14 +997,17 @@ class AnnotationApp:
         return [int(j) for j in self.queue.index[self.queue["photo_id"].isin(self.only)]]
 
     def on_prev(self):
+        """Foto anterior (con photo_ids: la anterior de las elegidas)."""
         prev = [j for j in self._chosen() if j < self.i]
         self._go(prev[-1] if prev else self.i)
 
     def on_next(self):
+        """Foto siguiente (con photo_ids: la siguiente de las elegidas)."""
         nxt = [j for j in self._chosen() if j > self.i]
         self._go(nxt[0] if nxt else self.i)
 
     def on_pending(self):
+        """Salta a la primera foto sin anotar."""
         i = first_pending(self.queue, self.events)
         if i is None:
             self.msg.value = "<b>All photos annotated 🎉</b>"
@@ -998,6 +1015,7 @@ class AnnotationApp:
         self._go(i)
 
     def on_jump(self):
+        """Salta al registro con el ID escrito."""
         oid = int(self.jump.value.strip())
         idx = self.queue.index[self.queue["observation_id"] == oid]
         if not len(idx):

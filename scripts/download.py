@@ -23,6 +23,7 @@ DEFAULT_STEPS = ["metadata", "tables", "photos", "resize", "check"]  # sin excel
 
 
 def main():
+    """Lee los argumentos, carga la configuracion y corre los pasos pedidos en orden."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", required=True, help="archivo YAML en configs/")
     ap.add_argument("--steps", default=",".join(DEFAULT_STEPS), help=f"pasos separados por coma: {STEPS}")

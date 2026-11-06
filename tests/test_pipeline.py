@@ -1029,6 +1029,8 @@ def test_martin_views(tmp_path):
     from sepia.disagree import disagreement_table, mentions_martin
     assert mentions_martin("Preguntar a Martín") and mentions_martin("hablar con MARTHIN")
     assert not mentions_martin("martes") and not mentions_martin(None)
+    assert not mentions_martin("Martina dijo") and not mentions_martin("smartinez")
+    assert mentions_martin("MARTIN?") and mentions_martin("hablar con Martin.")
     cfg = sepia.Config(base_dir=str(tmp_path))
     p = sepia.paths(cfg)
     photos = [(1, 11, 1), (2, 21, 1), (3, 31, 1)]
@@ -1298,7 +1300,6 @@ def test_ask_martin_editing_and_boxes(api, cfg):
 
 def test_excel_two_runs(api, tmp_path):
     """Un solo Excel con dos corridas: filas una debajo de otra, run y prefilled_from."""
-    from sepia.disagree import ask_martin_photos  # noqa: F401  (import del modulo)
     a1 = sepia.Config(base_dir=str(tmp_path / "proj" / "data" / "r1"), per_page=3)
     sepia.download_observations(a1)
     sepia.build_tables(a1)
@@ -1332,3 +1333,22 @@ def test_excel_two_runs(api, tmp_path):
     with pytest.raises(ValueError):
         sepia.build_excel([a1, a2], "dup.xlsx")
     assert sepia.build_excel(a1, "one.xlsx").parent == sepia.paths(a1)["exports"]
+
+
+
+def test_excel_counts_only_cuttlebones(api, cfg):
+    """'number individuals (cuttlebone)' cuenta solo letras con estado hueso."""
+    sepia.download_observations(cfg)
+    sepia.build_tables(cfg)
+    f = sepia.paths(cfg)["annotations"] / "HZ.jsonl"
+    sepia.append_jsonl({"observation_id": 1, "photo_id": 11, "individual": "a", "state": "cuttlebone",
+                        "saved_at": "2026-10-28T10:00"}, f)
+    sepia.append_jsonl({"observation_id": 1, "photo_id": 12, "individual": "b", "state": "live animal",
+                        "saved_at": "2026-10-28T10:01"}, f)
+    sepia.append_jsonl({"kind": "photo_info", "observation_id": 2, "photo_id": 21, "n_in_photo": 5,
+                        "prefilled_from": "assisted", "saved_at": "2026-10-28T10:02"}, f)
+    _, rows = _excel_rows(sepia.build_excel(cfg, "c.xlsx"))
+    r1 = [r for r in rows if r["ID"] == 1]
+    assert all(r["number individuals (cuttlebone)"] == 1 for r in r1)
+    r21 = [r for r in rows if r["photo ID"] == 21][0]
+    assert r21["prefilled_from"] == "assisted" and r21["n_in_photo"] == 5
