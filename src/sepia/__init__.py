@@ -15,5 +15,9 @@ from .photo_traits import (run_photo_traits, load_photo_traits, evaluate_photo_t
 
 from . import bitemarks
 from .bitemarks import run_bitemarks, load_bitemarks, evaluate_bitemarks
+from . import bonebox
+from .bonebox import run_bonebox, load_bonebox
+from . import sectors
+from .sectors import load_sectors, assign_sector
 
 __version__ = "0.1.0"

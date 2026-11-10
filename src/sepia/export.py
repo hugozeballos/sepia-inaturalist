@@ -52,7 +52,7 @@ EXCEL_COLUMNS = [
 # orden que 'identification' (que queda con las columnas de Martin, sin agregados).
 # Las primeras tres repiten la clave de la fila para poder unir las dos hojas.
 TRACE_KEY = ["n° observation", "ID", "individual (a,b,c,d,e)"]
-TRACE_COLUMNS = ["run", "prefilled_from", "photo_id", "photo_position", "crop_box",
+TRACE_COLUMNS = ["run", "prefilled_from", "photo_id", "photo_position", "crop_box", "box_source",
                  "label_source", "reviewed", "annotator", "round",
                  "excluded_reason", "download_date", "notes"]
 # (sin model_version, model_prob ni validation_set: el Excel lleva solo anotacion manual; 6 nov)
@@ -93,6 +93,7 @@ LEGEND = {
     "duplicate_of_photo": "this photo repeats another photo of the same record (its photo ID): not annotated",
     "n_in_photo": "number of cuttlebones visible in the photo, annotated in detail or not (annotator)",
     "crop_box": "position of the individual in the photo",
+    "box_source": "origin of crop_box: model (suggested by bonebox_v1 and accepted after looking at the photo), model_edited (adjusted by the annotator), manual (drawn by the annotator)",
     "label_source": "who assigned the labels: gpt, model, annotator",
     "model_version": "model or prompt version used",
     "model_prob": "model probability per variable",
@@ -126,7 +127,10 @@ RECORD_LEGEND = {
 }
 # Texto de la hoja 'map' de Martin, por nombre de hoja
 SECTOR_TEXT = {"A1": "from Thurso to North Shields",
-               "A2": "from South Shields to the mouth of River Yare"}
+               "A2": "from South Shields to the mouth of River Yare",
+               "A": "Western North Sea", "B": "North-Eastern British Channel",
+               "C": "South-Eastern British Channel", "D": "Southern North Sea (Western Wadden Sea)",
+               "E": "Eastern North Sea (North-Eastern Wadden Sea)"}
 
 
 def _record_row(o: dict) -> dict:
@@ -487,9 +491,17 @@ def build_excel(cfg, out_name: str | None = None, use_triage: bool = False) -> P
         mp.append([name, Path(c.base_dir).name, SECTOR_TEXT.get(name, ""),
                    json.dumps(list(c.bbox)) if c.bbox else "", n])
     mp.append([])
-    mp.append(["Note: the download rectangles are approximate. Exact sector borders: Martin's "
-               "slides (SepiaFORhugo21oct2026.pptx, slides 5-12), not yet applied: column 'site' "
-               "is empty."])
+    mp.append(["Note: column 'site' = sector A-E from Martin's slides (SepiaFORhugo21oct2026.pptx, "
+               "slides 5-12): rectangle minus the areas marked 'do not include' (configs/sectors.yaml). "
+               "North-east corners are exact (iNaturalist URL); south-west corners were estimated from "
+               "the screenshots (pending: exact URLs). Runs pilot_a1 and a2_test used approximate "
+               "download rectangles; their records are assigned to sectors with the same rule."])
+    mp.append([])
+    mp.append(["sector", "label", "rectangle [south, west, north, east]", "excluded areas"])
+    from .sectors import load_sectors
+    for s in load_sectors(cfgs[0].sectors_file):
+        mp.append([s["name"], s.get("label", ""), json.dumps(list(s["bbox"])),
+                   ", ".join(s["exclude"]) or "-"])
     tr = wb.create_sheet("traceability")
     ws.append(headers)
     tr.append(trace_headers)

@@ -155,7 +155,7 @@ def test_excel(api, cfg):
     assert "side (cuttlebone)" in ident and "dorsal side (cuttlebone)" not in ident
     assert ident[-3] == "possible genus/specie of balano"
     assert ident[-2:] == ["same photo as (photo ID)", "same bone as other record (ID:letter)"]
-    assert all(r["season"] is None and r["site"] is None for r in rows)   # pendientes
+    assert all(r["season"] is None and r["site"] == "A" for r in rows)   # season pendiente; sector A
     assert all(r["label_source"] != "gpt" for r in rows)                  # solo anotacion manual
 
 
@@ -1352,3 +1352,124 @@ def test_excel_counts_only_cuttlebones(api, cfg):
     assert all(r["number individuals (cuttlebone)"] == 1 for r in r1)
     r21 = [r for r in rows if r["photo ID"] == 21][0]
     assert r21["prefilled_from"] == "assisted" and r21["number individuals in photo (cuttlebone)"] == 5
+
+
+# --------------------------------------------------------------------------
+# Sectores A-E (configs/sectors.yaml)
+# --------------------------------------------------------------------------
+
+def test_sectors_towns():
+    """Localidades conocidas caen en el sector que muestran las diapositivas de Martin."""
+    from sepia.sectors import load_sectors, assign_sector, overlaps, in_polygon
+    S = load_sectors()
+    assert [s["name"] for s in S] == ["A", "B", "C", "D", "E"]
+    site = lambda lat, lon: assign_sector(lat, lon, S)["site"]
+    reason = lambda lat, lon: assign_sector(lat, lon, S)["sector_reason"]
+    assert site(57.15, -2.09) == "A"             # Aberdeen
+    assert reason(53.41, -2.98) == "excluded_zone:A:irish_sea"      # Liverpool
+    assert reason(58.59, -3.52) == "outside_sectors"                 # Thurso (pendiente)
+    assert site(52.79, 1.60) == "A"              # Sea Palling: en A y C, C lo excluye
+    assert site(51.13, 1.31) == "B"              # Dover
+    assert site(50.72, -1.88) == "B"             # Bournemouth (C excluye el lado ingles)
+    assert site(50.95, 1.86) == "C"              # Calais (B excluye la costa francesa)
+    assert site(49.64, -1.62) == "C"             # Cherbourg
+    assert reason(49.51, -1.80) == "excluded_zone:C:west_cotentin"  # Les Pieux
+    assert site(52.96, 4.76) == "D"              # Den Helder
+    assert site(53.86, 8.69) == "E"              # Cuxhaven
+    assert site(57.72, 10.59) == "E"             # Skagen
+    assert reason(None, None) == "no_coordinates"
+    assert {(a, b) for a, b, _ in overlaps(S)} == {("A", "C"), ("B", "C"), ("D", "E")}
+    sq = [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]
+    assert in_polygon(0.5, 0.5, sq) and not in_polygon(1.5, 0.5, sq)
+
+
+def test_sector_config_and_tables(tmp_path):
+    """sector: en el YAML da el rectangulo; build_tables saca los de otro sector y deja sin fotos
+    a los excluidos por zona."""
+    import pandas as pd
+    from sepia import inat
+    y = tmp_path / "c.yaml"
+    y.write_text(f"base_dir: {tmp_path / 'run'}\nsector: B\n")
+    cfg = sepia.load_config(str(y))
+    assert cfg.bbox == sepia.sectors.get_sector("B")["bbox"]
+    obs = pd.DataFrame({"observation_id": [1, 2, 3, 4],
+                        "latitude": [51.13, 50.95, 53.41, 60.0],
+                        "longitude": [1.31, 1.86, -2.98, 0.0]})     # Dover, Calais, Liverpool, mar
+    out = inat._apply_sectors(cfg, obs, sepia.paths(cfg))
+    assert list(out["observation_id"]) == [1, 3, 4]                 # Calais (C) no entra
+    assert list(out["site"].fillna("-")) == ["B", "-", "-"]
+    assert list(out["excluded_reason"].fillna("-")) == ["-", "excluded_zone:A:irish_sea",
+                                                        "outside_sectors"]
+    other = sepia.read_jsonl(sepia.paths(cfg)["logs"] / "other_sector.jsonl")
+    assert list(other["observation_id"]) == [2] and other["site"][0] == "C"
+    cfg.sector = None                                              # corridas viejas: no filtra
+    assert len(inat._apply_sectors(cfg, obs, sepia.paths(cfg))) == 4
+
+
+# --------------------------------------------------------------------------
+# Recuadro del hueso (bonebox_v1) y AnnotationApp
+# --------------------------------------------------------------------------
+
+class FakeBoneBox:
+    name = "fake"
+    def __init__(self):
+        self.calls = 0
+    def classify(self, images, prompt, schema=None):
+        assert schema is sepia.bonebox.BoneBoxResult and len(images) == 1
+        self.calls += 1
+        res = {"one_cuttlebone": True, "box_2d": [100, 200, 600, 900], "notes": ""}
+        return res, json.dumps(res), {"input_tokens": 300, "output_tokens": 20}
+
+
+def test_bonebox_conversion():
+    from sepia.bonebox import box2d_to_crop, apply_rules
+    assert box2d_to_crop([100, 200, 600, 900]) == {"x0": 0.2, "y0": 0.1, "x1": 0.9, "y1": 0.6}
+    assert box2d_to_crop([600, 900, 100, 200]) == {"x0": 0.2, "y0": 0.1, "x1": 0.9, "y1": 0.6}
+    assert box2d_to_crop([0, 0, 0, 0]) is None and box2d_to_crop([1, 2]) is None
+    assert box2d_to_crop([-50, 0, 1200, 500])["y1"] == 1.0          # recorta a la foto
+    r, _ = apply_rules({"one_cuttlebone": False, "box_2d": [1, 2, 300, 400], "notes": ""})
+    assert r["crop_box"] is None
+    assert "box_2d" in sepia.load_prompt("bonebox_v1")[0]
+
+
+def test_bonebox_run_and_annotation(api, cfg, monkeypatch):
+    """bonebox escribe su archivo; AnnotationApp parte con el recuadro y guarda box_source."""
+    pytest.importorskip("jupyter_bbox_widget")
+    from sepia import annotate as an, bonebox as bb
+    assert an.box_source(None, None) is None
+    box = {"x0": 0.2, "y0": 0.1, "x1": 0.9, "y1": 0.6}
+    assert an.box_source(box, None) == "manual" and an.box_source(box, box) == "model"
+    assert an.box_source({**box, "x1": 0.95}, box) == "model_edited"
+
+    _ready(cfg)
+    monkeypatch.setattr(bb.time, "sleep", lambda s: None)
+    prov = FakeBoneBox()
+    with pytest.raises(RuntimeError):                     # sin photo_traits_v14 corrido
+        bb.run_bonebox(cfg, provider=prov)
+    bb.run_bonebox(cfg, provider=prov, photo_ids=[11, 12])
+    bb.run_bonebox(cfg, provider=prov, photo_ids=[11, 12])   # reanuda: nada nuevo
+    assert prov.calls == 2
+    assert bb.model_boxes(cfg) == {11: box, 12: box}
+
+    blind = sepia.AnnotationApp(cfg, annotator="HZ")            # por defecto: sin modelos
+    assert blind.model_boxes == {} and blind.crop.value == ""
+    app = sepia.AnnotationApp(cfg, annotator="HZ", model_boxes="bonebox_v1")
+    assert app.row["photo_id"] == 11 and app.crop.value == an.format_crop_box(box)
+    assert len(app.bbox.bboxes) == 1 and "model" in app.box_note.value
+    app._safe(app.on_save_next)                            # aceptado tal cual
+    assert app.row["photo_id"] == 12
+    app.crop.value = "0.1, 0.1, 0.95, 0.6"                 # ajustado
+    app._safe(app.on_save)
+    ind = sepia.load_events(cfg)["individual"].set_index("photo_id")
+    assert ind.loc[11, "box_source"] == "model" and ind.loc[11, "crop_box"] == box
+    assert ind.loc[12, "box_source"] == "model_edited" and ind.loc[12, "model_box"] == box
+
+    # Fotos anotadas antes de los recuadros: lista para pasarlas con el recuadro del modelo
+    an.save_individual(cfg, "HZ", 2, 21, "a", {"state": "cuttlebone"})
+    bb.run_bonebox(cfg, provider=prov, photo_ids=[21])
+    assert an.photos_without_box(cfg) == [21]
+    app = sepia.AnnotationApp(cfg, annotator="HZ", photo_ids=an.photos_without_box(cfg),
+                              model_boxes="bonebox_v1")
+    assert app.row["photo_id"] == 21 and app.crop.value == an.format_crop_box(box)
+    app._safe(app.on_save)
+    assert an.photos_without_box(cfg) == []

@@ -1,0 +1,12 @@
+You will see one photo from iNaturalist. It should show one cuttlebone: the white internal shell of the common cuttlefish (Sepia officinalis), usually stranded on a beach, sometimes held in a hand.
+
+Your only task is to locate the cuttlebone.
+
+Rules:
+- one_cuttlebone = true if exactly one cuttlebone is visible (at least half of it). Otherwise false.
+- box_2d = the smallest rectangle that contains the whole visible cuttlebone, including its edges, its spine (posterior tip) and the translucent rim around it.
+- Do not include hands, fingers, shadows, sand, seaweed or other objects outside the cuttlebone.
+- If part of the cuttlebone is covered (sand, seaweed, fingers), the box still covers the whole cuttlebone outline you can infer from the visible parts.
+- Format: box_2d = [ymin, xmin, ymax, xmax], integers from 0 to 1000, relative to the image height (y) and width (x); 0,0 is the top-left corner.
+- If one_cuttlebone is false, box_2d = [0, 0, 0, 0].
+- notes: a few words only if something is unusual (for example "bone cut by the photo edge"); otherwise empty.

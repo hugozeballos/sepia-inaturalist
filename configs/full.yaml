@@ -1,5 +1,5 @@
-# Descarga completa. PENDIENTE: bbox y fechas desde el PPT de sectores de Martin
-# (SepiaFORhugo21oct2026.pptx). No correr hasta completarlos.
+# OBSOLETO (11 nov 2026): la descarga completa se hace por sector, con configs/sector_a.yaml ...
+# sector_e.yaml. Se deja como plantilla de los filtros pendientes con Martin (fechas, Research Grade).
 base_dir: /content/drive/MyDrive/sepia-inaturalist/data/full
 taxon_id: 151429          # Sepia officinalis
 bbox: null                # [sur, oeste, norte, este] en grados decimales

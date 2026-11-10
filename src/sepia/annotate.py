@@ -142,6 +142,23 @@ def parse_crop_box(text: str):
     return {"x0": round(x0, 4), "y0": round(y0, 4), "x1": round(x1, 4), "y1": round(y1, 4)}
 
 
+BOX_TOLERANCE = 0.005   # diferencia maxima (0-1) para considerar que el recuadro no se movio
+
+
+def box_source(crop_box, model_box, tol: float = BOX_TOLERANCE):
+    """
+    Origen del recuadro guardado, comparando con el que propuso el modelo (bonebox):
+    'model' (aceptado tal cual), 'model_edited' (lo ajusto la persona), 'manual' (sin propuesta
+    del modelo) o None (sin recuadro).
+    """
+    if not isinstance(crop_box, dict):
+        return None
+    if not isinstance(model_box, dict):
+        return "manual"
+    same = all(abs(float(crop_box[k]) - float(model_box[k])) <= tol for k in ("x0", "y0", "x1", "y1"))
+    return "model" if same else "model_edited"
+
+
 def crop_photo(path, box: dict):
     """Recorta un individuo de una foto (cualquier tamano). Devuelve una imagen PIL."""
     from PIL import Image, ImageOps
@@ -300,6 +317,25 @@ def work_queue(cfg: Config, ids=None) -> pd.DataFrame:
     return q.sort_values(["observation_id", "position"]).reset_index(drop=True)
 
 
+def photos_without_box(cfg: Config, model_boxes: str | None = "bonebox_v1") -> list[int]:
+    """
+    Fotos ya anotadas con UN solo individuo y sin recuadro guardado (p. ej. A1, anotada antes de
+    los recuadros). Con model_boxes, solo las que tienen recuadro del modelo. Uso:
+        AnnotationApp(cfg, "HZ", photo_ids=photos_without_box(cfg), model_boxes="bonebox_v1").show()
+    """
+    ind = load_events(cfg)["individual"]
+    if ind.empty:
+        return []
+    if "crop_box" not in ind:
+        ind = ind.assign(crop_box=None)
+    one = ind.groupby("photo_id").filter(lambda g: len(g) == 1)
+    out = set(one.loc[~one["crop_box"].apply(lambda b: isinstance(b, dict)), "photo_id"].astype(int))
+    if model_boxes:
+        from .bonebox import model_boxes as _load_boxes
+        out &= set(_load_boxes(cfg, model_boxes))
+    return sorted(out)
+
+
 def done_photos(events) -> set[tuple[int, int]]:
     """
     Fotos ya anotadas: con al menos un individuo, marcadas sin individuos, o con
@@ -410,13 +446,16 @@ class AnnotationApp:
 
     def __init__(self, cfg: Config, annotator: str, round_=None, ids=None, image_px=1024,
                  image_width="480px", image_height="560px", thumb_px="140px", boxes=True,
-                 prefill: str | None = None, photo_ids=None):
+                 prefill: str | None = None, photo_ids=None, model_boxes: str | None = None):
         """
         photo_ids: recorrer solo estas fotos (p. ej. las que tienen notas para Martin). Las demas
         fotos de esos registros siguen en las miniaturas, pero Prev/Next saltan entre las elegidas.
         prefill="assisted": en fotos SIN anotacion manual, el formulario parte con lo guardado en
         la anotacion asistida (annotations_assisted/<anotador>.jsonl). La letra la pone la
         persona. Lo guardado lleva prefilled_from='assisted' (no es anotacion a ciegas).
+        model_boxes="bonebox_v1": (por defecto None, a ciegas) en fotos con 1 hueso, si el individuo no tiene recuadro guardado,
+        parte con el recuadro del modelo ya dibujado (se acepta con Save, se ajusta con Draw box o
+        se borra con ✕). Se guardan model_box y box_source. None = sin recuadros del modelo.
         """
         import ipywidgets as w
         self.w, self.cfg, self.annotator, self.round = w, cfg, annotator, round_
@@ -427,6 +466,11 @@ class AnnotationApp:
             self.prefill = {int(r["photo_id"]): r for r in a.to_dict("records")} if len(a) else {}
         elif prefill is not None:
             raise ValueError("prefill must be None or 'assisted'")
+        self.model_boxes, self.model_boxes_version = {}, model_boxes
+        if model_boxes:
+            from .bonebox import model_boxes as _load_boxes
+            self.model_boxes = _load_boxes(cfg, model_boxes)
+        self._model_box = None                         # recuadro del modelo propuesto ahora
         self.only = {int(x) for x in photo_ids} if photo_ids is not None else None
         if self.only is not None:
             obs_of = work_queue(cfg)
@@ -552,8 +596,10 @@ class AnnotationApp:
         self.inputs["state"].observe(lambda ch: self._safe(lambda: self._on_state(ch)), names="value")
         self.inputs["epibionts"].observe(lambda ch: self._visibility(), names="value")
 
+        self.box_note = w.HTML()       # aviso: recuadro propuesto por el modelo
         form = w.VBox([self.table, self.n_photo, w.HTML("<hr style='margin:4px 0'>"), self.letter,
-                       w.HBox([self.crop, self.draw_btn, clear_btn])] + list(self.inputs.values()),
+                       w.HBox([self.crop, self.draw_btn, clear_btn]), self.box_note]
+                      + list(self.inputs.values()),
                       layout=w.Layout(margin="0 12px"))
         # Atajos de teclado (opcional: requiere anywidget, que instala jupyter-bbox-widget)
         self.keys = _make_key_listener()
@@ -633,6 +679,48 @@ class AnnotationApp:
         self.bbox.bboxes = boxes
         self._box_updating = False
 
+    def _propose_model_box(self, letter, saved_box, here):
+        """
+        Si el individuo no tiene recuadro guardado, la foto tiene recuadro del modelo y no hay
+        otros individuos anotados en esta foto (1 hueso): parte con el recuadro del modelo.
+        """
+        self._model_box = None
+        self.box_note.value = ""
+        pid = int(self.row["photo_id"])
+        mb = self.model_boxes.get(pid)
+        others = here[here["individual"] != letter] if len(here) else here
+        if mb is None:
+            return
+        if isinstance(saved_box, dict):
+            self._model_box = mb       # para box_source si se vuelve a guardar
+            return
+        if len(others):
+            return                     # varios huesos en la foto: recuadros a mano
+        self._model_box = mb
+        self.crop.value = format_crop_box(mb)
+        self.box_note.value = ("<div style='background:#fff3cd;color:#000;padding:2px 8px'>"
+                               f"Box from the model ({self.model_boxes_version}): Save to accept, "
+                               "▭ Draw box to redraw, ✕ to remove</div>")
+        if self.bbox is not None and getattr(self, "_box_size", None):
+            # recuadros guardados de esta foto + el propuesto (sin restos de otra letra)
+            saved = [{**from_crop_box(b, *self._box_size), "label": l}
+                     for l, b in zip(here["individual"], here["crop_box"])
+                     if isinstance(b, dict)] if len(here) and "crop_box" in here else []
+            self._box_updating = True
+            self.bbox.bboxes = saved + [{**from_crop_box(mb, *self._box_size), "label": letter}]
+            self._box_updating = False
+
+    def _box_mark(self, crop_box):
+        """model_box y box_source para guardar con el individuo (solo si hay recuadros del modelo)."""
+        if not self.model_boxes:
+            return {}
+        src = box_source(crop_box, self._model_box)
+        out = {"box_source": src}
+        if isinstance(self._model_box, dict):
+            out["model_box"] = self._model_box
+            out["model_box_version"] = self.model_boxes_version
+        return out
+
     def _toggle_draw(self, on):
         """Boton 'Draw box': habilita dibujar un recuadro con la letra elegida."""
         if self.bbox is None:
@@ -667,6 +755,7 @@ class AnnotationApp:
     def _clear_box(self):
         letter = self.letter.value
         self.crop.value = ""
+        self.box_note.value = ""
         if self.bbox is not None:
             self._box_updating = True
             self.bbox.bboxes = [b for b in self.bbox.bboxes if b.get("label") != letter]
@@ -829,6 +918,7 @@ class AnnotationApp:
                 vals.update({k: (None if pre.get(k) == "" else pre.get(k))
                              for k in FIELD_NAMES if k in pre})
         self.crop.value = format_crop_box(vals.get("crop_box"))   # recuadro guardado (o vacio)
+        self._propose_model_box(letter, vals.get("crop_box"), here)
         if self.bbox is not None:
             self.draw_btn.value = False
             self.bbox.label = letter or ""
@@ -881,9 +971,11 @@ class AnnotationApp:
         if ((dups["observation_id"] == r["observation_id"]) & (dups["photo_id"] == r["photo_id"])).any():
             mark_duplicate_photo(self.cfg, self.annotator, r["observation_id"], r["photo_id"],
                                  None, self.round)
+        crop_box = parse_crop_box(self.crop.value)
+        extra = {**(self._prefill_mark() or {}), **self._box_mark(crop_box)}
         save_individual(self.cfg, self.annotator, r["observation_id"], r["photo_id"],
                         self.letter.value, vals, self.round,
-                        crop_box=parse_crop_box(self.crop.value), extra=self._prefill_mark())
+                        crop_box=crop_box, extra=extra or None)
         self._save_count()
         letter = self.letter.value
         self._reload()

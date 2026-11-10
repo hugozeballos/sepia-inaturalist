@@ -221,7 +221,9 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None,
     # redo=True los vuelve a clasificar: se agregan lineas nuevas (no se borra nada)
     # y al leer vale la ultima.
     skip = set() if redo else done_ids(saved, prompt_sha)
-    todo = [int(i) for i in obs["observation_id"] if int(i) not in skip]
+    # Registros excluidos por sector (excluded_reason) no tienen fotos en photos.jsonl: se saltan
+    with_photos = set(pho["observation_id"].astype(int)) if len(pho) else set()
+    todo = [int(i) for i in obs["observation_id"] if int(i) not in skip and int(i) in with_photos]
     if ids is not None:                       # solo una lista de registros (casos de prueba)
         wanted = {int(i) for i in ids}
         missing = wanted - set(obs["observation_id"].astype(int))

@@ -1,0 +1,39 @@
+# Sector B de Martin: North-Eastern British Channel (PPT SepiaFORhugo21oct2026.pptx, diap. 10-11).
+# Rectangulo y zonas excluidas en configs/sectors.yaml (esquina suroeste estimada: ver ese archivo).
+# Los registros que ya estan en pilot_a1 o a2_test no se vuelven a bajar (skip_ids_from), y los de
+# otro sector no entran a esta corrida (logs/other_sector.jsonl).
+# Antes de descargar:  python scripts/download.py --config configs/sector_b.yaml --count-only
+base_dir: /content/drive/MyDrive/sepia-inaturalist/data/sector_b
+taxon_id: 151429                 # Sepia officinalis
+sector: B                       # bbox = rectangulo del sector (configs/sectors.yaml)
+photo_size: original
+resize: [512, 1024]
+skip_ids_from: [pilot_a1, a2_test]
+sheet_name: B                   # hoja de registros en el Excel
+
+# Triaje (scripts/triage.py). Clave en la variable de entorno GEMINI_API_KEY.
+triage:
+  provider: gemini
+  model: gemini-3.5-flash-lite
+  temperature: 0
+  prompt_version: triage_v2
+  image_size: 512
+  requests_per_minute: 8
+  thinking_level: low
+  timeout_s: 120
+
+# Rasgos por foto (el notebook 01 corre v14, v13, v12 y v8)
+photo_traits:
+  provider: gemini
+  model: gemini-3.5-flash-lite
+  temperature: 0
+  prompt_version: photo_traits_v14
+  image_size: 1024
+  requests_per_minute: 8
+  thinking_level: low
+  timeout_s: 120
+
+# Recuadro del hueso (scripts/bonebox.py): solo fotos con 1 hueso segun photo_traits_v14
+bonebox:
+  prompt_version: bonebox_v1
+  select_from: photo_traits_v14

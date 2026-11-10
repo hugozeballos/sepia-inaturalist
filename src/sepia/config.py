@@ -42,6 +42,12 @@ class Config:
     # Corridas anteriores cuyos registros NO se vuelven a bajar (p. ej. ["pilot_a1"]): nombre de
     # carpeta junto a base_dir, o ruta completa. Se excluyen al armar las tablas (antes de las fotos).
     skip_ids_from: list[str] | None = None
+    # Sector de Martin de esta corrida ('A'...'E', ver configs/sectors.yaml). Si se da y no hay
+    # bbox, la descarga usa el rectangulo del sector. Los registros de OTRO sector no entran a las
+    # tablas de esta corrida (quedan en logs/other_sector.jsonl y se bajan en la corrida de su
+    # sector). Sin sector (corridas viejas): se asigna 'site' a cada registro, sin filtrar.
+    sector: str | None = None
+    sectors_file: str | None = None    # None = configs/sectors.yaml del repo
     resize: tuple[int, ...] = (512, 1024)  # versiones reducidas a generar
     # Triaje con modelo de vision (ver src/sepia/triage.py)
     triage: dict | None = None
@@ -49,6 +55,8 @@ class Config:
     photo_traits: dict | None = None
     # Marcas de picoteo por foto (ver src/sepia/bitemarks.py). Sin seccion: usa la de photo_traits
     bitemarks: dict | None = None
+    # Recuadro del hueso por foto (ver src/sepia/bonebox.py). Sin seccion: usa la de photo_traits
+    bonebox: dict | None = None
 
     def query_params(self) -> dict:
         """Parametros de la consulta a la API (sin paginacion)."""
@@ -76,4 +84,7 @@ def load_config(path: str) -> Config:
         data["bbox"] = tuple(data["bbox"])
     if data.get("resize") is not None:
         data["resize"] = tuple(data["resize"])
+    if data.get("sector") and data.get("bbox") is None:
+        from .sectors import get_sector
+        data["bbox"] = get_sector(data["sector"], data.get("sectors_file"))["bbox"]
     return Config(**data)

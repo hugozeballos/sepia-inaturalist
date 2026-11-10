@@ -35,3 +35,8 @@ photo_traits:
   requests_per_minute: 8
   thinking_level: low
   timeout_s: 120
+
+# Recuadro del hueso (scripts/bonebox.py): solo fotos con 1 hueso segun photo_traits_v14
+bonebox:
+  prompt_version: bonebox_v1
+  select_from: photo_traits_v14

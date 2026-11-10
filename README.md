@@ -25,6 +25,8 @@ src/sepia/      funciones
   inat.py       descarga de registros y fotos, tablas, versiones reducidas
   export.py     Excel de entrega
   triage.py     triaje por registro con un modelo de visión (Gemini; Qwen después)
+  sectors.py    sectores A-E de Martin (configs/sectors.yaml) y asignación de cada registro
+  bonebox.py    recuadro del hueso por foto (bonebox_v1), para partir la anotación con él
   prompts/      prompts versionados (triage_vN.txt, photo_traits_vN.txt; resumen en docs/prompt_versions.md); nunca se editan:
                 cada cambio es una version nueva
 tests/          pruebas sin internet (API simulada)
@@ -95,8 +97,8 @@ import sepia
 Pasos por separado (en orden: `metadata, tables, photos, resize, check`). El Excel no se genera por defecto: es solo una exportación para Martin y se pide con `build_excel.py`.
 
 ```python
-!python scripts/download.py --config configs/full.yaml --count-only
-!python scripts/download.py --config configs/full.yaml --steps photos,resize,check
+!python scripts/download.py --config configs/sector_b.yaml --count-only
+!python scripts/download.py --config configs/sector_b.yaml --steps photos,resize,check
 !python scripts/build_excel.py --config configs/pilot79.yaml
 ```
 
@@ -109,6 +111,24 @@ token = userdata.get('GITHUB_TOKEN')
 ```
 
 El código se edita en un solo lugar (fuera de Colab), se hace commit y push, y en Colab solo `git pull`.
+
+## Sectores (11 nov 2026)
+
+Los 5 sectores de Martin (PPT `SepiaFORhugo21oct2026.pptx`, diap. 5-12) están en
+`configs/sectors.yaml`: cada uno es un rectángulo de latitud/longitud (el de la herramienta de
+iNaturalist) menos las zonas que Martin marcó para no incluir. La esquina noreste de cada
+rectángulo es exacta (URL de iNaturalist en la captura); la suroeste es una estimación desde las
+capturas (pendiente: las URLs completas). Una corrida por sector: `configs/sector_a.yaml` …
+`sector_e.yaml` (`sector: B` en el YAML da el rectángulo de descarga).
+
+Regla fija (`sepia.sectors.assign_sector`, con las coordenadas de la API): sector cuyo rectángulo
+contiene el punto y cuyas zonas excluidas no lo contienen. Si quedan dos (solapes chicos A-C, B-C,
+D-E), el primero en el orden del YAML (anotado en `site_overlap`). Si no queda ninguno:
+`excluded_reason` = `outside_sectors` o `excluded_zone:<sector>:<zona>`. En `build_tables`:
+- cada registro recibe `site`;
+- los excluidos quedan en la tabla, sin fotos ni modelos (hoja `excluded` del Excel);
+- con `sector:` en el YAML, los de otro sector no entran (`logs/other_sector.jsonl`) y los baja
+  la corrida de su sector.
 
 ## Triaje con Gemini
 
@@ -218,6 +238,20 @@ sumar tokens, contar una vez por `call_id`). `--limit` cuenta registros en este 
   del lado contrario; si no, `unclear`. La evaluación mide los dos, el acierto según la erosión
   anotada (`*_by_erosion`) y en qué lado anotó la persona las fotos con cada rasgo
   (`side_sign_reliability`).
+
+## Recuadro del hueso (`bonebox_v1`)
+
+Paso aparte que solo pide el recuadro, en fotos con 1 hueso según `photo_traits_v14`:
+
+```python
+!python scripts/bonebox.py --config configs/sector_b.yaml
+```
+
+`AnnotationApp(cfg, "HZ", model_boxes="bonebox_v1")` parte con ese recuadro dibujado (se acepta
+con Save, se ajusta con Draw box o se borra con ✕) y guarda `model_box` y `box_source`
+(`model` / `model_edited` / `manual`). Por defecto (`model_boxes=None`) la interfaz sigue a ciegas.
+`sepia.annotate.photos_without_box(cfg)` da las fotos ya anotadas con un individuo y sin recuadro
+(A1), para pasarlas con `AnnotationApp(..., photo_ids=...)`.
 
 ## Marcas de picoteo (Gemini, sin ejemplos)
 

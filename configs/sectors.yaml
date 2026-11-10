@@ -1,0 +1,66 @@
+# Sectores A-E de Martin (PPT SepiaFORhugo21oct2026.pptx, correo "sepia team" del 21 oct 2026).
+#
+# Cada sector es un rectangulo de latitud/longitud (la herramienta de rectangulo del mapa de
+# iNaturalist) menos las zonas que Martin marco en amarillo ("Do not include the marked ones").
+#
+# Origen de los numeros (11 nov 2026):
+# - Esquina NORESTE: EXACTA, leida de la URL de iNaturalist en la captura (nelat, nelng).
+# - Esquina SUROESTE: ESTIMADA. La URL de la captura esta cortada; se calculo ubicando el
+#   rectangulo en la captura con ciudades de referencia (error de ~0.01-0.05 grados).
+#   PENDIENTE: pedirle a Martin las 5 URLs completas y reemplazar estos valores.
+# - Zonas excluidas: dibujadas por Martin sobre la captura (formas del PPT), pasadas a
+#   coordenadas con el mismo calculo. Son toscas a proposito (lejos de la costa que importa).
+#
+# Formato: bbox = [sur, oeste, norte, este]; exclude = poligonos [[lon, lat], ...] (cerrados).
+# Orden de la lista = orden de prioridad si un punto cae en dos sectores (solapes chicos, ver
+# 'overlaps' en sepia.sectors). PENDIENTE con Martin: regla para los solapes.
+
+sectors:
+  - name: A
+    label: Western North Sea
+    slides: "12"
+    # Sur: se usa el norte EXACTO de B (52.6679); la estimacion daba 52.677 (Martin los dibujo juntos).
+    bbox: [52.6679, -3.494, 57.8288, 1.8223]
+    exclude:
+      irish_sea:      # diap. 12: costa oeste (Cumbria, Lancashire, Liverpool)
+        [[-4.292, 55.213], [-2.33, 55.013], [-2.74, 53.163], [-4.087, 53.355], [-4.292, 55.213]]
+
+  - name: B
+    label: North-Eastern British Channel
+    slides: "10-11"
+    # Oeste: diap. 11 (zoom, entre Wareham y Poole): -2.010
+    bbox: [50.482, -2.010, 52.6679, 1.9359]
+    exclude:
+      french_coast:   # diap. 10: costa francesa cerca de Calais (va al sector C)
+        [[1.698, 51.404], [2.343, 51.386], [2.138, 50.388], [1.228, 50.351], [1.698, 51.404]]
+
+  - name: C
+    label: South-Eastern British Channel
+    slides: "8-9"
+    # Suroeste: diap. 9 (zoom, al oeste de La Hague y al sur de Caen): 49.184, -1.942
+    bbox: [49.184, -1.942, 52.8408, 5.0889]
+    exclude:
+      british_side:   # diap. 8: "Do not include the western side of the channel" (va al sector B)
+        [[0.945, 53.447], [1.417, 53.25], [1.884, 53.044], [2.185, 52.951], [2.54, 52.619],
+         [2.793, 51.629], [2.592, 51.472], [2.031, 51.392], [1.767, 51.3], [1.552, 51.145],
+         [1.334, 50.877], [1.18, 50.728], [0.914, 50.65], [0.652, 50.556], [0.3, 50.449],
+         [-0.195, 50.213], [-0.471, 50.14], [-1.02, 50.037], [-2.164, 49.867], [-3.194, 49.985],
+         [-3.797, 50.218], [-4.012, 50.598], [-4.089, 50.846], [-4.156, 52.1], [-4.012, 52.565],
+         [-3.797, 52.788], [-3.312, 52.967], [-2.839, 53.062], [-2.164, 53.127], [-1.724, 53.174],
+         [-1.401, 53.22], [-0.365, 53.284], [0.066, 53.335], [0.476, 53.395], [0.945, 53.447]]
+      west_cotentin:  # diap. 9: costa oeste del Cotentin (Les Pieux a Coutances)
+        [[-2.139, 49.66], [-1.819, 49.65], [-1.622, 49.554], [-1.49, 49.299], [-1.366, 49.023],
+         [-1.84, 49.067], [-2.373, 49.11], [-2.139, 49.66]]
+
+  - name: D
+    label: Southern North Sea (Western Wadden Sea)
+    slides: "7"
+    bbox: [52.856, 4.146, 53.8394, 8.7532]
+    exclude: {}
+
+  - name: E
+    label: Eastern North Sea (North-Eastern Wadden Sea)
+    slides: "5-6"
+    # Suroeste: diap. 6 (zoom, Cuxhaven adentro): 53.777, 7.987
+    bbox: [53.777, 7.987, 58.0205, 11.2753]
+    exclude: {}

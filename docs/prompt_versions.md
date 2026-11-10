@@ -58,6 +58,12 @@ Erosión y calidad: desde v4, el texto es el mismo en todas las versiones hasta 
 |---|---|---|
 | `bitemarks_v1` | `46392ea66902` | Zero-shot, 1024 px, solo con 1 hueso visible. Definición tomada de la guía de Martin: muesca triangular o en V con paredes nítidas (`triangular_notch`), o corte curvo como el costado de un pico (`beak_side_arc`). El modelo lista hasta 6 candidatas y para cada una se pregunta: ¿arena o suciedad?, ¿borde roto?, ¿grieta?, ¿hoyo de erosión?, ¿sombra o reflejo? Ante la duda debe responder `true`. Un script fijo decide `bitemarks_rule` (yes / probable / no / not_assessable); también se guarda la respuesta del modelo (`bitemarks`). |
 
+## Recuadro del hueso (`bonebox`, por foto)
+
+| Versión | Hash | Qué hace |
+|---|---|---|
+| `bonebox_v1` | `092befa0a5eb` | Solo el recuadro: nada de lado, erosión ni calidad. Una consulta por foto (1024 px), solo en fotos con 1 hueso según `photo_traits_v14` (`select_from`). El modelo responde `one_cuttlebone` y `box_2d` = [ymin, xmin, ymax, xmax] en 0-1000; el código lo pasa a `crop_box` {x0, y0, x1, y1} en 0-1 (igual que la anotación). En `AnnotationApp(model_boxes="bonebox_v1")` el recuadro aparece dibujado y se acepta, se ajusta o se reemplaza; se guarda `box_source` (model / model_edited / manual). |
+
 ## Historia del criterio de lado
 
 1. v1-v5 siguen la guía de Martin (ventral laminado, con líneas en arco).
