@@ -121,14 +121,15 @@ rectángulo es exacta (URL de iNaturalist en la captura); la suroeste es una est
 capturas (pendiente: las URLs completas). Una corrida por sector: `configs/sector_a.yaml` …
 `sector_e.yaml` (`sector: B` en el YAML da el rectángulo de descarga).
 
-Regla fija (`sepia.sectors.assign_sector`, con las coordenadas de la API): sector cuyo rectángulo
-contiene el punto y cuyas zonas excluidas no lo contienen. Si quedan dos (solapes chicos A-C, B-C,
-D-E), el primero en el orden del YAML (anotado en `site_overlap`). Si no queda ninguno:
-`excluded_reason` = `outside_sectors` o `excluded_zone:<sector>:<zona>`. En `build_tables`:
-- cada registro recibe `site`;
-- los excluidos quedan en la tabla, sin fotos ni modelos (hoja `excluded` del Excel);
-- con `sector:` en el YAML, los de otro sector no entran (`logs/other_sector.jsonl`) y los baja
-  la corrida de su sector.
+Se baja **todo** lo de cada rectángulo, sin filtrar, en orden B → C → D → E → A (los
+rectángulos se cruzan; cada corrida salta lo de las anteriores con `skip_ids_from`).
+
+El sector se asigna **al final**, al armar el Excel (`sepia.sectors.assign_sector`, con las
+coordenadas de la API): sector cuyo rectángulo contiene el punto y cuyas zonas excluidas no lo
+contienen. Si quedan dos (solapes chicos A-C, B-C, D-E), el primero en el orden del YAML
+(`site_overlap`). Si no queda ninguno, `excluded_reason` = `outside_sectors` o
+`excluded_zone:<sector>:<zona>` y el registro va a la hoja `excluded`. Como no cambia nada en
+la descarga, los bordes se pueden corregir después y basta con rehacer el Excel.
 
 ## Triaje con Gemini
 

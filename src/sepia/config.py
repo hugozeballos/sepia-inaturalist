@@ -43,9 +43,8 @@ class Config:
     # carpeta junto a base_dir, o ruta completa. Se excluyen al armar las tablas (antes de las fotos).
     skip_ids_from: list[str] | None = None
     # Sector de Martin de esta corrida ('A'...'E', ver configs/sectors.yaml). Si se da y no hay
-    # bbox, la descarga usa el rectangulo del sector. Los registros de OTRO sector no entran a las
-    # tablas de esta corrida (quedan en logs/other_sector.jsonl y se bajan en la corrida de su
-    # sector). Sin sector (corridas viejas): se asigna 'site' a cada registro, sin filtrar.
+    # bbox, la descarga usa el rectangulo del sector. No filtra nada: el sector de cada registro
+    # ('site') se asigna al final, al armar el Excel.
     sector: str | None = None
     sectors_file: str | None = None    # None = configs/sectors.yaml del repo
     resize: tuple[int, ...] = (512, 1024)  # versiones reducidas a generar

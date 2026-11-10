@@ -1,14 +1,15 @@
 # Sector E de Martin: Eastern North Sea (North-Eastern Wadden Sea) (PPT SepiaFORhugo21oct2026.pptx, diap. 5-6).
 # Rectangulo y zonas excluidas en configs/sectors.yaml (esquina suroeste estimada: ver ese archivo).
-# Los registros que ya estan en pilot_a1 o a2_test no se vuelven a bajar (skip_ids_from), y los de
-# otro sector no entran a esta corrida (logs/other_sector.jsonl).
+# Se baja TODO lo del rectangulo, sin filtrar: el sector de cada registro se asigna al final (Excel).
+# Los rectangulos se cruzan (B y C en el sureste de Inglaterra), asi que se bajan EN ORDEN
+# B -> C -> D -> E -> A, y cada uno salta lo que ya esta en las corridas anteriores (skip_ids_from).
 # Antes de descargar:  python scripts/download.py --config configs/sector_e.yaml --count-only
 base_dir: /content/drive/MyDrive/sepia-inaturalist/data/sector_e
 taxon_id: 151429                 # Sepia officinalis
 sector: E                       # bbox = rectangulo del sector (configs/sectors.yaml)
 photo_size: original
 resize: [512, 1024]
-skip_ids_from: [pilot_a1, a2_test]
+skip_ids_from: [pilot_a1, a2_test, sector_b, sector_c, sector_d]
 sheet_name: E                   # hoja de registros en el Excel
 
 # Triaje (scripts/triage.py). Clave en la variable de entorno GEMINI_API_KEY.

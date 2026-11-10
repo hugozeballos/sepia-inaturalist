@@ -236,43 +236,14 @@ def existing_ids(cfg: Config) -> dict[int, str]:
     return out
 
 
-def _apply_sectors(cfg: Config, obs: pd.DataFrame, p: dict) -> pd.DataFrame:
-    """
-    Agrega site / site_overlap / excluded_reason a cada registro (ver sepia.sectors).
-    - Fuera de todo sector o en una zona excluida: se queda en la tabla con excluded_reason
-      (sale en la hoja 'excluded' del Excel), pero sin fotos ni modelos.
-    - Con cfg.sector: los registros de OTRO sector salen de la tabla (logs/other_sector.jsonl),
-      para que los baje la corrida de su sector (skip_ids_from no los ve).
-    """
-    from .sectors import load_sectors, assign_sectors
-    if obs.empty:
-        return obs.assign(site=None, site_overlap=None, excluded_reason=None)
-    obs = assign_sectors(obs, load_sectors(cfg.sectors_file))
-    obs = obs.rename(columns={"sector_reason": "excluded_reason"})
-    if cfg.sector:
-        other = obs["site"].notna() & (obs["site"] != cfg.sector)
-        write_jsonl(obs.loc[other, ["observation_id", "latitude", "longitude", "site"]],
-                    p["logs"] / "other_sector.jsonl")
-        if other.any():
-            print(f"De otro sector (no entran a esta corrida, sector {cfg.sector}): {int(other.sum())} "
-                  f"· {obs.loc[other, 'site'].value_counts().to_dict()}")
-        obs = obs[~other].reset_index(drop=True)
-    n_ex = int(obs["excluded_reason"].notna().sum())
-    print(f"Sectores: {obs['site'].value_counts().to_dict()} · excluidos por zona o fuera de "
-          f"sector: {n_ex}" + (f" {obs['excluded_reason'].value_counts().to_dict()}" if n_ex else "")
-          + (f" · en dos sectores: {int(obs['site_overlap'].notna().sum())}"
-             if obs["site_overlap"].notna().any() else ""))
-    return obs
-
-
 def build_tables(cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Genera tables/observations.jsonl y tables/photos.jsonl desde la copia cruda.
     Con cfg.skip_ids_from, los registros que ya estan en esas corridas no entran a las tablas
     (asi tampoco se bajan sus fotos ni pasan por los modelos). La copia cruda no se toca.
     Los saltados quedan en logs/skipped_existing.jsonl.
-    Sectores (configs/sectors.yaml): cada registro recibe 'site'; los que estan fuera de todo
-    sector o en una zona excluida quedan con excluded_reason y sin fotos (ver _apply_sectors).
+    No filtra por sector: el sector ('site') se asigna al final, al armar el Excel
+    (sepia.sectors, configs/sectors.yaml).
     """
     p = paths(cfg)
     raw = load_raw(cfg)
@@ -286,11 +257,8 @@ def build_tables(cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame]:
         print(f"En la consulta: {len(obs)} registros · ya en {', '.join(cfg.skip_ids_from)}: "
               f"{len(skipped)} (no se bajan) · nuevos: {len(obs) - len(skipped)}")
         obs = obs[skip.isna()].reset_index(drop=True)
-    obs = _apply_sectors(cfg, obs, p)
-    if len(pho):
-        # Fotos solo de los registros que siguen (los excluidos por sector no bajan fotos)
-        keep = obs.loc[obs["excluded_reason"].isna(), "observation_id"]
-        pho = pho[pho["observation_id"].isin(set(keep))].reset_index(drop=True)
+        if len(pho):
+            pho = pho[pho["observation_id"].isin(set(obs["observation_id"]))].reset_index(drop=True)
     write_jsonl(obs, p["tables"] / "observations.jsonl")
     write_jsonl(pho, p["tables"] / "photos.jsonl")
     print(f"observations.jsonl: {len(obs)} | photos.jsonl: {len(pho)}")

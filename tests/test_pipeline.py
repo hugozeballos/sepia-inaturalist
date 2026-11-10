@@ -1383,27 +1383,22 @@ def test_sectors_towns():
     assert in_polygon(0.5, 0.5, sq) and not in_polygon(1.5, 0.5, sq)
 
 
-def test_sector_config_and_tables(tmp_path):
-    """sector: en el YAML da el rectangulo; build_tables saca los de otro sector y deja sin fotos
-    a los excluidos por zona."""
-    import pandas as pd
-    from sepia import inat
+def test_sector_config_and_excel(api, cfg, tmp_path):
+    """sector: en el YAML da el rectangulo; la descarga no filtra; el sector se asigna en el Excel."""
     y = tmp_path / "c.yaml"
     y.write_text(f"base_dir: {tmp_path / 'run'}\nsector: B\n")
-    cfg = sepia.load_config(str(y))
-    assert cfg.bbox == sepia.sectors.get_sector("B")["bbox"]
-    obs = pd.DataFrame({"observation_id": [1, 2, 3, 4],
-                        "latitude": [51.13, 50.95, 53.41, 60.0],
-                        "longitude": [1.31, 1.86, -2.98, 0.0]})     # Dover, Calais, Liverpool, mar
-    out = inat._apply_sectors(cfg, obs, sepia.paths(cfg))
-    assert list(out["observation_id"]) == [1, 3, 4]                 # Calais (C) no entra
-    assert list(out["site"].fillna("-")) == ["B", "-", "-"]
-    assert list(out["excluded_reason"].fillna("-")) == ["-", "excluded_zone:A:irish_sea",
-                                                        "outside_sectors"]
-    other = sepia.read_jsonl(sepia.paths(cfg)["logs"] / "other_sector.jsonl")
-    assert list(other["observation_id"]) == [2] and other["site"][0] == "C"
-    cfg.sector = None                                              # corridas viejas: no filtra
-    assert len(inat._apply_sectors(cfg, obs, sepia.paths(cfg))) == 4
+    assert sepia.load_config(str(y)).bbox == sepia.sectors.get_sector("B")["bbox"]
+    sepia.download_observations(cfg)
+    obs, pho = sepia.build_tables(cfg)
+    assert len(obs) == 7 and len(pho) == 14 and "site" not in obs     # nada se filtra al bajar
+    raw = inat.load_raw(cfg)
+    raw[1]["geojson"]["coordinates"] = [-2.98, 53.41]                   # registro 2 en Liverpool
+    (sepia.paths(cfg)["raw"] / "page_0001.json").write_text(json.dumps({"results": raw}))
+    sepia.build_tables(cfg)
+    wb, rows = _excel_rows(sepia.build_excel(cfg, "s.xlsx"))
+    assert {r["site"] for r in rows} == {"A"} and not any(r["ID"] == 2 for r in rows)
+    ex = list(wb["excluded"].iter_rows(min_row=2, values_only=True))
+    assert [(e[1], e[-1]) for e in ex] == [(2, "excluded_zone:A:irish_sea")]
 
 
 # --------------------------------------------------------------------------

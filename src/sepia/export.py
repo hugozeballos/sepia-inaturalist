@@ -258,6 +258,14 @@ def _excel_table(cfg: Config, use_triage: bool = False):
     if manifest.exists():
         obs["download_date"] = json.loads(manifest.read_text())["written_at"][:10]
 
+    # Sector (paso final): rectangulo de Martin menos sus zonas excluidas (configs/sectors.yaml).
+    # Fuera de todo sector o en una zona excluida -> excluded_reason (hoja 'excluded').
+    from .sectors import load_sectors, assign_sectors
+    obs = assign_sectors(obs, load_sectors(cfg.sectors_file))
+    if "excluded_reason" not in obs:
+        obs["excluded_reason"] = None
+    obs["excluded_reason"] = obs["excluded_reason"].fillna(obs.pop("sector_reason"))
+
     # Eventos de anotacion: individuos, fotos sin individuos y registros excluidos
     from .annotate import load_events
     events = load_events(cfg)
