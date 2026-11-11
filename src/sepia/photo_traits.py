@@ -312,11 +312,11 @@ def _call_with_retries(provider, images: list[bytes], prompt: str, schema):
     for attempt in range(4):
         try:
             return provider.classify(images, prompt, schema=schema)
-        except RateLimited:
+        except RateLimited as e:
             if attempt == 3:
                 raise
             wait = 30 * 2 ** attempt
-            print(f"  limite de uso o modelo saturado; espero {wait} s", flush=True)
+            print(f"  limite de uso o modelo saturado; espero {wait} s · {str(e)[:160]}", flush=True)
             time.sleep(wait)
 
 

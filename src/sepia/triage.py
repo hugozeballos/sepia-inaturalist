@@ -222,9 +222,13 @@ class ZaiProvider:
                 "thinking": {"type": "enabled" if self.thinking else "disabled"}}
         r = self._session.post(f"{self.BASE_URL}/chat/completions", json=body,
                                timeout=self.timeout_s)
+        # Z.ai responde 429 tambien por problemas de cuenta (1113: sin saldo o sin paquete de
+        # recursos): eso no se arregla esperando, asi que detiene la corrida con el mensaje.
+        if r.status_code == 429 and any(c in r.text for c in ('"1113"', "1113", "1112", "1301")):
+            raise FatalProviderError(f"HTTP 429 (cuenta Z.ai): {r.text[:300]}")
         if r.status_code == 429 or r.status_code >= 500:
             raise RateLimited(f"HTTP {r.status_code}: {r.text[:300]}")
-        if r.status_code in (401, 403, 404):
+        if r.status_code in (400, 401, 403, 404):
             raise FatalProviderError(f"HTTP {r.status_code}: {r.text[:300]}")
         r.raise_for_status()
         data = r.json()
@@ -327,11 +331,12 @@ def run_triage(cfg: Config, provider=None, limit: int | None = None,
                 try:
                     result, raw, usage = provider.classify(images, prompt)
                     break
-                except RateLimited:
+                except RateLimited as e:
                     if attempt == 3:
                         raise
                     wait = 30 * 2 ** attempt
-                    print(f"  limite de uso o modelo saturado; espero {wait} s", flush=True)
+                    print(f"  limite de uso o modelo saturado; espero {wait} s · {str(e)[:160]}",
+                          flush=True)
                     time.sleep(wait)
             elapsed = round(time.time() - t0, 1)
             result, rules = apply_rules(result)
