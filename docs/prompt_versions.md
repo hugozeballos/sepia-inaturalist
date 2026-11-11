@@ -73,3 +73,10 @@ Erosión y calidad: desde v4, el texto es el mismo en todas las versiones hasta 
 5. 3 nov: en la revisión persona vs modelos, los dorsales llamados ventrales tienen casi siempre como evidencia "porous chalky surface", que v12 daba como señal ventral. v13 la quita y describe el dorsal como más liso y duro.
 
 Pendiente con Martin: si las crestas a lo largo son dorsales en *S. officinalis*.
+
+
+## v15: todo en una consulta (`assist_v15`, varios registros por consulta)
+
+| Versión | Hash | Qué hace |
+|---|---|---|
+| `assist_v15` | `36ce1fdaf220` | Triaje + rasgos por foto + recuadro en una sola consulta, con varios registros por consulta (`pack_size`, por defecto 5). Secuencia fija por foto: contenido → huesos visibles → si hay 1: recuadro (`box_2d`), lado (evidencia antes del valor; mismas definiciones y regla entre fotos que v14, solo dentro del mismo registro), erosión y calidad (`cover`/`focus` → regla fija, como v14), mirando dentro del recuadro. Al final de cada registro, el resumen como `triage_v2` (estado, huesos distintos, `count_possible`...). Cada registro empieza con "NEW RECORD, evaluate from scratch"; orden barajado con semilla fija. Si un registro vuelve incompleto, se repite solo. Escribe versiones derivadas `triage_v15`, `photo_traits_v15` y `bonebox_v15` (con sufijo en las pruebas, p. ej. `_p5`), que las interfaces leen como cualquier otra. Mismas reglas fijas que v14 (erosión 3 → lado `unclear`; calidad por `quality_from_cover`). |

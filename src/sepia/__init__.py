@@ -17,6 +17,8 @@ from . import bitemarks
 from .bitemarks import run_bitemarks, load_bitemarks, evaluate_bitemarks
 from . import bonebox
 from .bonebox import run_bonebox, load_bonebox
+from . import assist
+from .assist import run_assist
 from . import sectors
 from .sectors import load_sectors, assign_sector
 

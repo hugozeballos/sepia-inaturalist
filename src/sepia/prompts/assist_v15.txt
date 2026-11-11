@@ -1,0 +1,75 @@
+You are helping to annotate iNaturalist records of the common cuttlefish (Sepia officinalis) photographed on North Sea beaches. A person will check every answer you give.
+
+You receive SEVERAL records in this request. Each record starts with a line "=== NEW RECORD Rk ===" and its photos are labelled "Rk-P1", "Rk-P2", etc. (photo 1, 2... of record Rk).
+
+Return one entry in "records" for EACH record, with its "record_label" (e.g. "R2"), and inside it one entry in "photos" for EACH of its photos, with its "photo_label" (e.g. "R2-P1"). Do not skip, merge or invent records or photos.
+
+INDEPENDENCE
+- Treat every record as if it were the only one: evaluate it from scratch. Do not use what you saw or answered for other records. Different records are different beaches, days and bones.
+- Inside a record, first judge each photo on its own, from that photo only. The other photos of the SAME record may be used only where explicitly allowed below (side, and the record summary).
+- For each photo, write the evidence fields (what you actually see) before the value they support.
+
+FOR EACH PHOTO, follow these steps in order
+
+Step 1 - "content": what the photo mainly shows.
+- "cuttlebone": the internal shell (bone) of a cuttlefish, usually white and oval, found stranded.
+- "live_animal": a whole cuttlefish (alive or freshly dead, with soft body, skin, eyes or arms).
+- "egg_case": cuttlefish eggs ("sea grapes"): dark, grape-like capsules, single or in clusters.
+- "other": something else (another species, beach, people, only a label or a map).
+- "unclear": the photo does not allow a decision.
+
+Step 2 - "n_cuttlebones_visible": the number of cuttlebones visible in the photo (0 if none). Count a bone only if at least roughly half of it is visible: a whole bone, a fragment of roughly half a bone or more, or a bone partly cut off by the photo edge with at least half of it inside the photo. Do NOT count small pieces at the photo edge or small fragments.
+
+Step 3 - only if EXACTLY ONE cuttlebone is visible, describe it (steps 3a-3d). Otherwise set "box_2d" to [0, 0, 0, 0] and use "not_applicable" for "side_evidence", "side", "side_basis", "erosion", "quality_evidence", "cover" and "focus", and go to the next photo.
+
+Step 3a - "box_2d": first locate the bone. The smallest rectangle that contains the whole visible cuttlebone, including its edges, its spine (posterior tip) and the translucent rim; not hands, shadows or other objects. If part of the bone is covered, the box covers the whole outline you can infer. Format [ymin, xmin, ymax, xmax], integers from 0 to 1000, relative to the image height (y) and width (x); 0,0 is the top-left corner.
+From now on, look only INSIDE this box: describe this bone, not the background.
+
+Step 3b - side ("side_evidence", then "side", then "side_basis"): which side of the cuttlebone faces the camera.
+- "dorsal": the smoother, harder, usually slightly convex shield of the bone, often with a fine granular or warty surface. The key sign: low, STRAIGHT, parallel ridges (gentle undulations of the surface) that run LENGTHWISE along the bone, from one end (tip) to the other end. They are relief, not drawn lines: they are seen as faint parallel streaks of light and shadow, mostly when the light comes from the side. If you see these lengthwise ridges, the side is dorsal. If you do not see them, that does NOT mean ventral: with frontal or soft light they are usually invisible.
+- "ventral": the softer side, usually flat or slightly concave, often with a U- or V-shaped rim near the posterior end (the end with the small spine). It often shows bite marks. Never decide "ventral" because of streaks or lines: the lengthwise ridges are a sign of the DORSAL side only.
+- Streaks that are not relief of the bone do not count: background objects (wire, mesh, fences, sticks, seaweed), shadows cast by other objects, cracks or fractures. Short, curved or irregular marks are not the dorsal ridges.
+- "unclear": the side cannot be determined (bone seen edge-on, mostly covered, too blurry, too small).
+- A wrong side is worse than "unclear". If you are not sure, use "unclear": do not guess from a general impression (white, smooth, chalky or porous look), only from a sign you can see.
+Cross-photo rule (ONLY photos of the SAME record, ONLY for a photo whose side you could not decide on its own):
+- Use a photo of this record whose side is clear as the reference pattern.
+- If the unclear bone shows the same surface features as the reference (same cuttlebone or another cuttlebone of this record), it is the same side.
+- If it is the SAME cuttlebone as in the reference and its surface looks clearly different, it is the opposite side. Decide whether it is the same cuttlebone from its shape, size, outline, broken parts and marks.
+- If it is a DIFFERENT cuttlebone and its surface looks different, keep "unclear".
+- If you still cannot decide, keep "unclear".
+"side_evidence": a few words naming the visible feature that decided the side in THIS photo (for example "lengthwise ridges in side light", "U-shaped rim near spine", "same bone as R1-P2, opposite surface"), or why it is unclear ("edge-on", "covered by sand"). Name only features you actually see.
+"side_basis": "direct" (this photo alone, without the ridges rule), "lines_rule" (dorsal because of the straight lengthwise ridges), "inferred_same_bone" or "inferred_other_bone" (cross-photo rule), "unclear" (side is unclear).
+
+Step 3c - "erosion": how much of the bone is missing or worn away. Judge the OUTLINE of the bone.
+- "1": the outline is complete; at most the edge is slightly worn.
+- "2": one or several pieces are missing, but in total LESS than 10% of the bone.
+- "3": 10% or more of the bone is missing, including bones that are only a fragment.
+- "unclear": the outline is not visible enough to judge (covered, cut off by the photo edge, too blurry).
+
+Step 3d - how well the bone can be seen ("quality_evidence", then "cover", then "focus"). Do NOT give a quality grade: it is computed later from these answers.
+"quality_evidence": a few words naming what hides the bone and where, or "nothing covers the bone" (for example "many sand grains on the posterior half", "fingers over the tip").
+"cover": how much of the bone is hidden by anything lying ON it or IN FRONT of it: sand grains, a patch or film of sand, grass, seaweed, fingers, sticks, wire or mesh, litter, other objects.
+- "none": nothing on the bone; the whole surface is visible.
+- "few_grains": only a couple of isolated sand grains; about 95% or more of the bone is clearly visible.
+- "scattered_grains_or_small_objects": several or many sand grains, a patch or film of sand, or objects that hide part of the bone; roughly 5% to 60% of the bone is hidden.
+- "large_part_covered": most of the bone is hidden (roughly more than 60%).
+Features OF the bone itself are NOT cover: marks, holes, dots or nicks (they may be bite marks), organisms attached to the bone (barnacles or other epibionts), stains or discoloration, the natural texture, and missing or broken parts (that is erosion).
+"focus": "sharp" (surface details can be distinguished) or "blurry" (out of focus, motion-blurred, or too small or far away to see details).
+
+"notes" (photo): one short sentence only if something is unusual. Otherwise an empty string.
+
+AFTER ALL THE PHOTOS OF A RECORD, the record summary (here you may compare the photos of this record):
+- "record_state": "cuttlebone", "live_animal", "egg_case", "other" or "unclear"; "mixed" if the record contains more than one of cuttlebone, live_animal or egg_case.
+- "n_cuttlebones": the number of DISTINCT cuttlebones in the record (0 if none). The same bone photographed several times (other side, other angle, close-up, held in the hand after appearing in an overview photo) counts ONCE. If a close-up probably shows one of the bones of an overview photo, assume it is the same bone. A broken piece counts only if it is roughly half a bone or more.
+- "count_possible": false if there are MORE THAN 5 cuttlebones (give your best estimate), if bones overlap or are partly buried, or if you cannot tell whether two photos show the same bone. Otherwise true.
+- "same_bone_in_several_photos": true if at least one cuttlebone appears in more than one photo.
+- "fragments_present": true if broken pieces of cuttlebone are visible.
+- "confidence": "high" only if the state is obvious AND the count is exact and easy (5 bones or fewer, clearly separated, no doubt about repeated bones); otherwise "medium" or "low".
+- "record_notes": one short sentence only if something is unusual. Otherwise an empty string.
+
+Then start the next record from scratch.
+
+Rules:
+- Judge only what is visible in the photos. Ignore any text, title or caption (a record may mention "hundreds of bones" but show only one). Do not guess from context.
+- Do not describe or identify people (a bone may be held in a hand; the hand only matters if it hides the bone).
+- Answer only with the JSON requested.

@@ -132,13 +132,17 @@ class GeminiProvider:
         # razonamiento del modelo: MINIMAL, LOW, MEDIUM, HIGH (None = lo que decida el modelo)
         self.thinking_level = thinking_level.upper() if thinking_level else None
 
-    def classify(self, images: list[bytes], prompt: str, schema=None) -> tuple[dict, str, dict]:
-        """schema: modelo Pydantic de la respuesta (por defecto TriageResult)."""
+    def classify(self, images: list[bytes], prompt: str, schema=None,
+                 labels: list[str] | None = None) -> tuple[dict, str, dict]:
+        """
+        schema: modelo Pydantic de la respuesta (por defecto TriageResult).
+        labels: texto antes de cada foto (por defecto "Photo N:"), p. ej. para varios registros.
+        """
         schema = schema or TriageResult
         t = self._types
         contents = []
         for i, img in enumerate(images, start=1):
-            contents.append(f"Photo {i}:")
+            contents.append(labels[i - 1] if labels else f"Photo {i}:")
             contents.append(t.Part.from_bytes(data=img, mime_type="image/jpeg"))
         contents.append(prompt)
         try:
@@ -205,13 +209,14 @@ class ZaiProvider:
         self.model, self.temperature, self.timeout_s = model, temperature, timeout_s
         self.thinking = thinking
 
-    def classify(self, images: list[bytes], prompt: str, schema=None) -> tuple[dict, str, dict]:
+    def classify(self, images: list[bytes], prompt: str, schema=None,
+                 labels: list[str] | None = None) -> tuple[dict, str, dict]:
         """Misma interfaz que GeminiProvider: (resultado validado, texto crudo, tokens)."""
         import base64
         schema = schema or TriageResult
         content = []
         for i, img in enumerate(images, start=1):
-            content.append({"type": "text", "text": f"Photo {i}:"})
+            content.append({"type": "text", "text": labels[i - 1] if labels else f"Photo {i}:"})
             content.append({"type": "image_url", "image_url": {
                 "url": "data:image/jpeg;base64," + base64.b64encode(img).decode()}})
         content.append({"type": "text", "text": prompt + (

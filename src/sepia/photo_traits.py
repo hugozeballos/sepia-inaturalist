@@ -201,7 +201,7 @@ def quality_from_cover(cover, focus) -> str:
 
 
 # Versiones donde la calidad la decide quality_from_cover
-QUALITY_RULE = {"photo_traits_v14"}
+QUALITY_RULE = {"photo_traits_v14", "photo_traits_v15"}
 
 
 # Esquema de respuesta por version (las que no estan usan el de su unidad).
@@ -225,7 +225,8 @@ PROMPT_UNIT = {"photo_traits_v5": "record", "photo_traits_v6": "record",
 # Regla fija de v12: con erosion 3 (segun el modelo) el lado queda 'unclear'.
 # Simulada sobre v8 (2 nov): el acierto del lado cae con la erosion (88 % con 1, 76 % con 2,
 # 60 % con 3). El lado original del modelo se guarda en side_raw para medir el efecto.
-EROSION3_SIDE_UNCLEAR = {"photo_traits_v12", "photo_traits_v13", "photo_traits_v14"}
+EROSION3_SIDE_UNCLEAR = {"photo_traits_v12", "photo_traits_v13", "photo_traits_v14",
+                         "photo_traits_v15"}
 
 
 def apply_rules(result: dict, prompt_version: str | None = None) -> tuple[dict, list[str]]:

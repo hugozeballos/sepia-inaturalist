@@ -56,6 +56,9 @@ class Config:
     bitemarks: dict | None = None
     # Recuadro del hueso por foto (ver src/sepia/bonebox.py). Sin seccion: usa la de photo_traits
     bonebox: dict | None = None
+    # v15: triaje + rasgos + recuadro en una consulta, varios registros por consulta
+    # (ver src/sepia/assist.py). Sin seccion: proveedor y modelo de photo_traits, 5 por consulta
+    assist: dict | None = None
 
     def query_params(self) -> dict:
         """Parametros de la consulta a la API (sin paginacion)."""

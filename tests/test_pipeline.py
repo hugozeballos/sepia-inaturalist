@@ -1514,3 +1514,66 @@ def test_zai_provider(monkeypatch):
     assert sent["url"].endswith("/chat/completions") and sent["body"]["thinking"]["type"] == "disabled"
     assert content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
     assert "box_2d" in content[-1]["text"] and content[-1]["text"].startswith("find the bone")
+
+
+# --------------------------------------------------------------------------
+# v15: triaje + rasgos + recuadro, varios registros por consulta
+# --------------------------------------------------------------------------
+
+class FakePack:
+    """Responde cada registro de la consulta. broken = etiqueta de un registro que vuelve sin
+    una de sus fotos (la primera vez): se repite solo."""
+    name = "fake"
+    def __init__(self, broken=None):
+        self.calls, self.packs, self.broken = 0, [], broken
+    def classify(self, images, prompt, schema=None, labels=None):
+        from sepia.assist import PackV15
+        assert schema is PackV15 and len(labels) == len(images)
+        self.calls += 1
+        recs = {}
+        for lab in labels:
+            pl = lab.splitlines()[-1].rstrip(":")
+            recs.setdefault(pl.split("-")[0], []).append(pl)
+        self.packs.append(len(recs))
+        photo = lambda pl, i: {
+            "photo_label": pl, "content": "cuttlebone", "n_cuttlebones_visible": 1,
+            "box_2d": [100, 200, 600, 900], "side_evidence": "U-shaped rim",
+            "side": "ventral" if i == 0 else "dorsal", "side_basis": "direct", "erosion": "1",
+            "quality_evidence": "nothing covers the bone", "cover": "none", "focus": "sharp",
+            "notes": ""}
+        out = []
+        for rl, pls in recs.items():
+            if rl == self.broken and len(recs) > 1:
+                pls = pls[:1]                               # falta una foto
+            out.append({"record_label": rl, "photos": [photo(pl, i) for i, pl in enumerate(pls)],
+                        "record_state": "cuttlebone", "n_cuttlebones": 1, "count_possible": True,
+                        "same_bone_in_several_photos": True, "fragments_present": False,
+                        "confidence": "high", "record_notes": ""})
+        res = PackV15.model_validate({"records": out}).model_dump()
+        return res, json.dumps(res), {"input_tokens": 9000, "output_tokens": 2000}
+
+
+def test_assist_packs(api, cfg, monkeypatch):
+    from sepia import assist as asx
+    packs = asx.make_packs(list(range(1, 8)), 3)
+    assert [sorted(p) for p in packs] == [[1, 2, 3], [4, 5, 6], [7]]
+    assert asx.make_packs(list(range(1, 8)), 3) == packs                 # misma semilla
+    _ready(cfg)
+    monkeypatch.setattr(asx.time, "sleep", lambda s: None)
+    prov = FakePack(broken="R2")
+    stats = asx.run_assist(cfg, provider=prov, pack_size=5, suffix="_t")
+    # 7 registros: paquetes de 5 y 2; en cada uno R2 falla y se repite solo
+    assert stats["records_ok"] == 7 and stats["records_retried"] == 2 and prov.calls == 4
+    assert asx.run_assist(cfg, provider=prov, pack_size=5, suffix="_t")["calls"] == 0  # reanuda
+    pt = sepia.load_photo_traits(cfg, "photo_traits_v15_t")
+    assert len(pt) == 14 and set(pt["photo_quality"]) == {"high"}        # regla de calidad v14
+    assert set(pt.loc[pt["position"] == 1, "side"]) == {"ventral"}
+    tri = sepia.triage.load_triage(cfg, "gemini", "gemini-3.5-flash-lite", "triage_v15_t")
+    assert len(tri) == 7 and set(tri["n_cuttlebones"]) == {1}
+    assert len(tri.iloc[0]["photos"]) == 2
+    boxes = sepia.bonebox.model_boxes(cfg, "bonebox_v15_t")
+    assert len(boxes) == 14 and boxes[11] == {"x0": 0.2, "y0": 0.1, "x1": 0.9, "y1": 0.6}
+    raw = sepia.read_jsonl(sepia.io.model_output_path(cfg, "assist", "gemini", "gemini-3.5-flash-lite",
+                                                      "assist_v15_t"))
+    assert len(raw) == 4 and raw["input_tokens"].sum() == 36000
+    assert "NEW RECORD" in sepia.load_prompt("assist_v15")[0]
