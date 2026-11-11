@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import json
 import os
 import time
 from importlib import resources
@@ -168,12 +169,82 @@ class GeminiProvider:
         return parsed, r.text, usage
 
 
+def extract_json(text: str) -> str:
+    """
+    El JSON de una respuesta de texto libre: quita el razonamiento (<think>...</think>), los
+    cercos ```json y lo que haya antes de la primera { o despues de la ultima }.
+    """
+    import re
+    text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S)
+    text = re.sub(r"<\|?begin_of_box\|?>|<\|?end_of_box\|?>", "", text)
+    a, b = text.find("{"), text.rfind("}")
+    if a < 0 or b < a:
+        raise ValueError(f"la respuesta no trae JSON: {text[:200]!r}")
+    return text[a:b + 1]
+
+
+class ZaiProvider:
+    """
+    GLM (Z.ai) por su API compatible con OpenAI, p. ej. glm-4.6v-flash (gratis).
+    Requiere ZAI_API_KEY en el entorno. A diferencia de Gemini, la API no garantiza la estructura
+    del JSON: el esquema va escrito al final del prompt y la respuesta se valida con Pydantic
+    (si no cumple, la foto queda con error y se puede reintentar).
+    """
+    name = "zai"
+    BASE_URL = "https://api.z.ai/api/paas/v4"
+
+    def __init__(self, model: str, temperature: float = 0.0, thinking: bool = False,
+                 timeout_s: int = 120):
+        import requests
+        key = os.environ.get("ZAI_API_KEY")
+        if not key:
+            raise RuntimeError("Falta la variable de entorno ZAI_API_KEY")
+        self._session = requests.Session()
+        self._session.headers.update({"Authorization": f"Bearer {key}",
+                                      "Content-Type": "application/json"})
+        self.model, self.temperature, self.timeout_s = model, temperature, timeout_s
+        self.thinking = thinking
+
+    def classify(self, images: list[bytes], prompt: str, schema=None) -> tuple[dict, str, dict]:
+        """Misma interfaz que GeminiProvider: (resultado validado, texto crudo, tokens)."""
+        import base64
+        schema = schema or TriageResult
+        content = []
+        for i, img in enumerate(images, start=1):
+            content.append({"type": "text", "text": f"Photo {i}:"})
+            content.append({"type": "image_url", "image_url": {
+                "url": "data:image/jpeg;base64," + base64.b64encode(img).decode()}})
+        content.append({"type": "text", "text": prompt + (
+            "\n\nAnswer with ONLY one JSON object (no other text) that follows this JSON schema:\n"
+            + json.dumps(schema.model_json_schema(), separators=(",", ":")))})
+        body = {"model": self.model, "temperature": self.temperature,
+                "messages": [{"role": "user", "content": content}],
+                "thinking": {"type": "enabled" if self.thinking else "disabled"}}
+        r = self._session.post(f"{self.BASE_URL}/chat/completions", json=body,
+                               timeout=self.timeout_s)
+        if r.status_code == 429 or r.status_code >= 500:
+            raise RateLimited(f"HTTP {r.status_code}: {r.text[:300]}")
+        if r.status_code in (401, 403, 404):
+            raise FatalProviderError(f"HTTP {r.status_code}: {r.text[:300]}")
+        r.raise_for_status()
+        data = r.json()
+        text = data["choices"][0]["message"].get("content") or ""
+        u = data.get("usage") or {}
+        usage = {"input_tokens": u.get("prompt_tokens"), "output_tokens": u.get("completion_tokens"),
+                 "thinking_tokens": None}
+        parsed = schema.model_validate_json(extract_json(text)).model_dump()
+        return parsed, text, usage
+
+
 def make_provider(provider: str, model: str, temperature: float = 0.0, **opts):
-    """Crea el proveedor de modelo indicado en la configuracion (por ahora solo 'gemini')."""
+    """Crea el proveedor de modelo indicado en la configuracion: 'gemini' o 'zai' (GLM)."""
     if provider == "gemini":
         return GeminiProvider(model, temperature,
                               thinking_level=opts.get("thinking_level", "low"),
                               timeout_s=opts.get("timeout_s", 120))
+    if provider == "zai":
+        return ZaiProvider(model, temperature, thinking=bool(opts.get("thinking_level")),
+                           timeout_s=opts.get("timeout_s", 120))
     raise ValueError(f"Proveedor no soportado todavia: {provider}")
 
 

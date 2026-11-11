@@ -195,3 +195,41 @@ def model_boxes(cfg: Config, prompt_version: str | None = None) -> dict[int, dic
         return {}
     df = df[df["crop_box"].apply(lambda b: isinstance(b, dict))]
     return dict(zip(df["photo_id"].astype(int), df["crop_box"]))
+
+
+def iou(a: dict, b: dict) -> float:
+    """Interseccion sobre union de dos recuadros {x0, y0, x1, y1} (0 = no se tocan, 1 = iguales)."""
+    w = min(a["x1"], b["x1"]) - max(a["x0"], b["x0"])
+    h = min(a["y1"], b["y1"]) - max(a["y0"], b["y0"])
+    inter = max(0.0, w) * max(0.0, h)
+    area = lambda r: (r["x1"] - r["x0"]) * (r["y1"] - r["y0"])
+    union = area(a) + area(b) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def compare_with_manual(cfg: Config, prompt_version: str | None = None) -> pd.DataFrame:
+    """
+    Recuadro del modelo vs recuadro dibujado a mano (fotos con un solo individuo anotado).
+    Calcula el IoU con el orden pedido en el prompt ([ymin, xmin, ymax, xmax]) y con el orden
+    invertido ([xmin, ymin, xmax, ymax], el habitual de otros modelos como GLM), para ver cual
+    usa el modelo. IoU >= 0.5 se suele considerar un acierto.
+    """
+    from .annotate import load_events
+    bb = load_bonebox(cfg, prompt_version)
+    ind = load_events(cfg)["individual"]
+    if bb.empty or ind.empty or "crop_box" not in ind:
+        return pd.DataFrame()
+    one = ind.groupby("photo_id").filter(lambda g: len(g) == 1)
+    one = one[one["crop_box"].apply(lambda b: isinstance(b, dict))][["photo_id", "crop_box"]]
+    one["photo_id"] = one["photo_id"].astype("int64")
+    t = bb.merge(one.rename(columns={"crop_box": "manual_box"}), on="photo_id")
+    rows = []
+    for r in t.itertuples(index=False):
+        b = r.box_2d if isinstance(r.box_2d, list) else None
+        as_yx = box2d_to_crop(b) if b else None
+        as_xy = box2d_to_crop([b[1], b[0], b[3], b[2]]) if b and len(b) == 4 else None
+        rows.append({"observation_id": r.observation_id, "photo_id": r.photo_id,
+                     "box_2d": b, "manual_box": r.manual_box,
+                     "iou_yx": round(iou(as_yx, r.manual_box), 3) if as_yx else None,
+                     "iou_xy": round(iou(as_xy, r.manual_box), 3) if as_xy else None})
+    return pd.DataFrame(rows)

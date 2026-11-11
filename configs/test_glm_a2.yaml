@@ -1,0 +1,21 @@
+# PRUEBA (11 nov 2026): recuadros de GLM-4.6V-Flash en a2_test, que tiene recuadros dibujados a mano.
+# Ver configs/test_glm_a1.yaml. Solo se usa para bonebox (con --ids, sobre fotos con recuadro manual).
+base_dir: /content/drive/MyDrive/sepia-inaturalist/data/a2_test
+taxon_id: 151429
+bbox: [52.57, -1.7, 55.0, 1.8]
+photo_size: original
+resize: [512, 1024]
+sheet_name: A2
+
+photo_traits:
+  provider: zai
+  model: glm-4.6v-flash
+  temperature: 0
+  prompt_version: photo_traits_v14
+  image_size: 1024
+  requests_per_minute: 40
+  thinking_level: null
+  timeout_s: 180
+
+bonebox:
+  prompt_version: bonebox_v1

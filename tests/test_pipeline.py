@@ -1468,3 +1468,49 @@ def test_bonebox_run_and_annotation(api, cfg, monkeypatch):
     assert app.row["photo_id"] == 21 and app.crop.value == an.format_crop_box(box)
     app._safe(app.on_save)
     assert an.photos_without_box(cfg) == []
+
+
+def test_bonebox_iou_and_zai_json():
+    from sepia.bonebox import iou
+    from sepia.triage import extract_json
+    a = {"x0": 0, "y0": 0, "x1": 0.5, "y1": 0.5}
+    assert iou(a, a) == 1 and iou(a, {"x0": 0.5, "y0": 0.5, "x1": 1, "y1": 1}) == 0
+    assert abs(iou(a, {"x0": 0.25, "y0": 0, "x1": 0.75, "y1": 0.5}) - 1 / 3) < 1e-9
+    txt = '<think>hmm</think>Here:\n```json\n{"one_cuttlebone": true, "box_2d": [1, 2, 3, 4], "notes": ""}\n```'
+    r = sepia.bonebox.BoneBoxResult.model_validate_json(extract_json(txt))
+    assert r.box_2d == [1, 2, 3, 4]
+    with pytest.raises(ValueError):
+        extract_json("no json here")
+    with pytest.raises(ValueError):
+        sepia.triage.make_provider("otro", "m")
+
+
+def test_zai_provider(monkeypatch):
+    """GLM por la API de Z.ai: fotos como data URL, esquema al final del prompt, respuesta validada."""
+    import requests
+    sent = {}
+
+    class Resp:
+        status_code = 200
+        text = ""
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {"choices": [{"message": {"content": '```json\n{"one_cuttlebone": true, '
+                                             '"box_2d": [10, 20, 30, 40], "notes": ""}\n```'}}],
+                    "usage": {"prompt_tokens": 900, "completion_tokens": 30}}
+
+    def fake_post(self, url, json=None, timeout=None):
+        sent.update(url=url, body=json)
+        return Resp()
+
+    monkeypatch.setenv("ZAI_API_KEY", "k")
+    monkeypatch.setattr(requests.Session, "post", fake_post)
+    prov = sepia.triage.make_provider("zai", "glm-4.6v-flash", thinking_level=None)
+    res, raw, usage = prov.classify([b"\xff\xd8jpg"], "find the bone",
+                                    schema=sepia.bonebox.BoneBoxResult)
+    assert res["box_2d"] == [10, 20, 30, 40] and usage["input_tokens"] == 900
+    content = sent["body"]["messages"][0]["content"]
+    assert sent["url"].endswith("/chat/completions") and sent["body"]["thinking"]["type"] == "disabled"
+    assert content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert "box_2d" in content[-1]["text"] and content[-1]["text"].startswith("find the bone")
