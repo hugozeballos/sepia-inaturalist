@@ -20,7 +20,7 @@ Step 1 - "content": what the photo mainly shows.
 
 Step 2 - "n_cuttlebones_visible": the number of cuttlebones visible in the photo (0 if none). Count a bone only if at least roughly half of it is visible: a whole bone, a fragment of roughly half a bone or more, or a bone partly cut off by the photo edge with at least half of it inside the photo. Do NOT count small pieces at the photo edge or small fragments.
 
-Step 3 - only if EXACTLY ONE cuttlebone is visible, describe it (steps 3a-3d). Otherwise set "box_2d" to [0, 0, 0, 0] and use "not_applicable" for "side_evidence", "side", "side_basis", "erosion", "quality_evidence", "cover" and "focus", and go to the next photo.
+Step 3 - only if EXACTLY ONE cuttlebone is visible, describe it (steps 3a-3d). Otherwise leave "box_2d" empty (null) and use "not_applicable" for "side_evidence", "side", "side_basis", "erosion", "quality_evidence", "cover" and "focus", and go to the next photo.
 
 Step 3a - "box_2d": first locate the bone. The smallest rectangle that contains the whole visible cuttlebone, including its edges, its spine (posterior tip) and the translucent rim; not hands, shadows or other objects. If part of the bone is covered, the box covers the whole outline you can infer. Format [ymin, xmin, ymax, xmax], integers from 0 to 1000, relative to the image height (y) and width (x); 0,0 is the top-left corner.
 From now on, look only INSIDE this box: describe this bone, not the background.

@@ -53,7 +53,7 @@ class PhotoV15(BaseModel):
     photo_label: str
     content: PhotoContent
     n_cuttlebones_visible: int
-    box_2d: list[int]
+    box_2d: list[int] | None = None   # solo con exactamente 1 hueso; si no, sin recuadro
     side_evidence: str
     side: Side
     side_basis: SideBasis

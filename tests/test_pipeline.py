@@ -1577,3 +1577,14 @@ def test_assist_packs(api, cfg, monkeypatch):
                                                       "assist_v15_t"))
     assert len(raw) == 4 and raw["input_tokens"].sum() == 36000
     assert "NEW RECORD" in sepia.load_prompt("assist_v15")[0]
+
+
+def test_assist_no_box_when_not_one():
+    """Con 0 o varios huesos, v15 va sin recuadro (null) y no se guarda recuadro."""
+    from sepia.assist import PhotoV15
+    ph = PhotoV15.model_validate({"photo_label": "R1-P1", "content": "cuttlebone",
+                                  "n_cuttlebones_visible": 3, "side_evidence": "not_applicable",
+                                  "side": "not_applicable", "side_basis": "not_applicable",
+                                  "erosion": "not_applicable", "quality_evidence": "not_applicable",
+                                  "cover": "not_applicable", "focus": "not_applicable", "notes": ""})
+    assert ph.box_2d is None
