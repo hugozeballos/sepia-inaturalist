@@ -141,10 +141,19 @@ class AssistedApp:
     """Foto + tabla clicable de valores por prompt + columna 'human' + campos manuales."""
 
     def __init__(self, cfg: Config, versions: list[str], annotator: str = "HZ",
-                 image_width: str = "520px", thumb_px: str = "120px"):
-        """Arma la lista de fotos (alguna version o el triaje ve 1 hueso) y los widgets."""
+                 image_width: str = "520px", thumb_px: str = "120px",
+                 model_boxes: str | None = None):
+        """
+        Arma la lista de fotos (alguna version o el triaje ve 1 hueso) y los widgets.
+        model_boxes (p. ej. "bonebox_v15"): dibuja en rojo el recuadro del modelo sobre la foto,
+        solo para verlo (el recuadro se guarda en AnnotationApp, con la letra).
+        """
         import ipywidgets as w
         self.w, self.cfg, self.versions, self.annotator = w, cfg, versions, annotator
+        self.model_boxes = {}
+        if model_boxes:
+            from .bonebox import model_boxes as _load_boxes
+            self.model_boxes = _load_boxes(cfg, model_boxes)
         base = paths(cfg)["base"] / "photos"
         self.big_dirs = [base / "1024px", base / "original"]
         self.thumb_dirs = [base / "512px"] + self.big_dirs
@@ -242,6 +251,21 @@ class AssistedApp:
             self._cache[key] = data
         return self._cache[key]
 
+    def _with_box(self, data: bytes, photo_id: int) -> bytes:
+        """La foto con el recuadro del modelo dibujado en rojo (si hay); si no, tal cual."""
+        box = self.model_boxes.get(photo_id)
+        if not box or not data:
+            return data
+        import io
+        from PIL import Image, ImageDraw, ImageOps
+        im = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
+        W, H = im.size
+        ImageDraw.Draw(im).rectangle([box["x0"] * W, box["y0"] * H, box["x1"] * W, box["y1"] * H],
+                                     outline=(220, 0, 0), width=max(3, W // 150))
+        out = io.BytesIO()
+        im.save(out, "JPEG", quality=90)
+        return out.getvalue()
+
     # ---- valores ----
     def _model_values(self, field) -> dict:
         r = self.rows.loc[self.i]
@@ -281,8 +305,11 @@ class AssistedApp:
                 + (f" · notes: {html.escape(_norm(tr.get('notes')))}" if tr.get("notes") else "")
                 + "</div>")
         self.msg.value = ""
-        self.image.value = self._read(r["file_name"], self.big_dirs)
-        self.image_label.value = f"Photo {int(r['position'])}"
+        self.image.value = self._with_box(self._read(r["file_name"], self.big_dirs),
+                                          int(r["photo_id"]))
+        self.image_label.value = f"Photo {int(r['position'])}" + (
+            " · <span style='color:#d00'>red box = model</span>"
+            if int(r["photo_id"]) in self.model_boxes else "")
         self._render_strip(r)
 
         # estado de esta foto: clics y valores manuales (restaurados si ya se guardo)
@@ -386,7 +413,8 @@ class AssistedApp:
 
     def _peek(self, p):
         """Ver otra foto del registro en grande (la tabla sigue siendo de la foto en revision)."""
-        self.image.value = self._read(p["file_name"], self.big_dirs)
+        self.image.value = self._with_box(self._read(p["file_name"], self.big_dirs),
+                                          int(p["photo_id"]))
         cur = self.rows.loc[self.i]
         label = f"Photo {int(p['position'])}"
         if int(p["photo_id"]) != int(cur["photo_id"]):

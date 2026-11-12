@@ -1588,3 +1588,22 @@ def test_assist_no_box_when_not_one():
                                   "erosion": "not_applicable", "quality_evidence": "not_applicable",
                                   "cover": "not_applicable", "focus": "not_applicable", "notes": ""})
     assert ph.box_2d is None
+
+
+def test_assisted_draws_model_box(api, cfg, monkeypatch):
+    """AssistedApp(model_boxes=...) dibuja el recuadro del modelo sobre la foto (solo para ver)."""
+    pytest.importorskip("ipywidgets")
+    from sepia import assist as asx
+    _ready(cfg)
+    sepia.make_resized(cfg, 512)
+    monkeypatch.setattr(asx.time, "sleep", lambda s: None)
+    asx.run_assist(cfg, provider=FakePack(), pack_size=5, suffix="")
+    from sepia.assisted import AssistedApp
+    plain = AssistedApp(cfg, ["photo_traits_v15"])
+    app = AssistedApp(cfg, ["photo_traits_v15"], model_boxes="bonebox_v15")
+    assert len(app.model_boxes) == 14 and "red box" in app.image_label.value
+    assert app.image.value != plain.image.value                        # foto con recuadro
+    im = Image.open(io.BytesIO(app.image.value)).convert("RGB")
+    W, H = im.size
+    r, g, b = im.getpixel((int(0.2 * W) + 1, int(0.35 * H)))           # borde izquierdo del recuadro
+    assert r > 150 and g < 80
