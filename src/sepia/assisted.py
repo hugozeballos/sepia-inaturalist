@@ -145,8 +145,10 @@ class AssistedApp:
                  model_boxes: str | None = None):
         """
         Arma la lista de fotos (alguna version o el triaje ve 1 hueso) y los widgets.
-        model_boxes (p. ej. "bonebox_v15"): dibuja en rojo el recuadro del modelo sobre la foto,
-        solo para verlo (el recuadro se guarda en AnnotationApp, con la letra).
+        model_boxes (p. ej. "bonebox_v15"): muestra el recuadro del modelo sobre la foto. Con
+        jupyter-bbox-widget instalado se puede rehacer ("Redraw box") o quitar (✕); el recuadro
+        final se guarda con la foto (crop_box, model_box, box_source) y AnnotationApp
+        (prefill="assisted") parte con el. Sin el widget: solo se dibuja en rojo, para verlo.
         """
         import ipywidgets as w
         self.w, self.cfg, self.versions, self.annotator = w, cfg, versions, annotator
@@ -188,6 +190,27 @@ class AssistedApp:
                                                             max_height="520px",
                                                             object_fit="contain"))
         self.image_label = w.HTML()
+        # Recuadro editable (opcional): BBoxWidget en vez de la imagen fija
+        self.bbox = None
+        self.box_value, self.box_model = None, None       # recuadro final y el del modelo (0-1)
+        if self.model_boxes:
+            try:
+                from jupyter_bbox_widget import BBoxWidget
+                self.bbox = BBoxWidget(hide_buttons=True, view_only=True, classes=["bone"],
+                                       label="bone", layout=w.Layout(width=image_width))
+                self.bbox.observe(lambda ch: self._on_box_drawn(ch["new"]), names="bboxes")
+            except ImportError:
+                self.bbox = None
+        self._box_updating = False
+        self.redraw_btn = w.ToggleButton(description="▭ Redraw box",
+                                         tooltip="drag a new rectangle around the bone",
+                                         layout=w.Layout(width="130px"))
+        self.redraw_btn.observe(lambda ch: self._toggle_redraw(ch["new"]), names="value")
+        clear_box_b = w.Button(description="✕ no box", layout=w.Layout(width="90px"),
+                               tooltip="remove the box for this photo")
+        clear_box_b.on_click(lambda _: self._set_box(None))
+        self.box_info = w.HTML()
+        self.box_controls = w.HBox([self.redraw_btn, clear_box_b, self.box_info])
         self.strip = w.HBox(layout=w.Layout(flex_flow="row wrap"))
         self.grid = w.VBox()
         self.evidence = w.HTML()
@@ -204,7 +227,8 @@ class AssistedApp:
             wid.observe(lambda ch, n=name: self._touched(n), names="value")
             self.manual[name] = wid
         self.manual["epibionts"].observe(lambda _: self._barnacle_visibility(), names="value")
-        left = w.VBox([self.image_label, self.image, self.strip],
+        viewer = [self.bbox, self.box_controls] if self.bbox is not None else [self.image]
+        left = w.VBox([self.image_label, *viewer, self.strip],
                       layout=w.Layout(width=image_width))
         self.manual_box = w.GridBox(list(self.manual.values()), layout=w.Layout(
             grid_template_columns="repeat(2, 320px)", grid_gap="2px 8px"))
@@ -250,6 +274,70 @@ class AssistedApp:
                     break
             self._cache[key] = data
         return self._cache[key]
+
+    # ---- recuadro editable ----
+    def _photo_path(self, file_name):
+        name = Path(file_name).stem + ".jpg"
+        for d in self.big_dirs:
+            for f in (d / name, d / file_name):
+                if f.exists():
+                    return f
+        return None
+
+    def _show_in_bbox(self, file_name, box, editable):
+        """Foto en el BBoxWidget con el recuadro dado (o sin recuadro)."""
+        from PIL import Image, ImageOps
+        from .annotate import from_crop_box
+        path = self._photo_path(file_name)
+        self.redraw_btn.value = False
+        self.box_controls.layout.display = None if editable else "none"
+        if path is None:
+            return
+        with Image.open(path) as im:
+            self._box_size = ImageOps.exif_transpose(im).size
+        self._box_updating = True
+        self.bbox.image = str(path)
+        self.bbox.bboxes = ([{**from_crop_box(box, *self._box_size), "label": "bone"}]
+                            if isinstance(box, dict) else [])
+        self._box_updating = False
+        self._box_status()
+
+    def _box_status(self):
+        from .annotate import box_source
+        src = box_source(self.box_value, self.box_model)
+        txt = {"model": "box from the model", "model_edited": "box redrawn by you",
+               "manual": "box drawn by you", None: "no box"}[src]
+        self.box_info.value = f"<small style='color:#555'>{txt}</small>"
+
+    def _toggle_redraw(self, on):
+        if self.bbox is None:
+            return
+        self.bbox.view_only = not on
+        self.redraw_btn.button_style = "warning" if on else ""
+        if on:
+            self.box_info.value = "<small><b>drag a rectangle around the bone</b></small>"
+
+    def _on_box_drawn(self, boxes):
+        """Al soltar: queda solo el recuadro nuevo; se guarda al apretar Save."""
+        if self._box_updating or not self.redraw_btn.value or not boxes:
+            return
+        from .annotate import to_crop_box
+        box = to_crop_box(boxes[-1], *self._box_size)
+        if box["x1"] - box["x0"] < 0.01 or box["y1"] - box["y0"] < 0.01:
+            return
+        self._set_box(box)
+
+    def _set_box(self, box):
+        """Recuadro final de esta foto (None = sin recuadro); se muestra y se guarda con Save."""
+        from .annotate import from_crop_box
+        self.box_value = box
+        if self.bbox is not None and getattr(self, "_box_size", None):
+            self._box_updating = True
+            self.bbox.bboxes = ([{**from_crop_box(box, *self._box_size), "label": "bone"}]
+                                if box else [])
+            self._box_updating = False
+        self.redraw_btn.value = False
+        self._box_status()
 
     def _manual_values(self, oid: int, pid: int) -> dict:
         """
@@ -333,11 +421,16 @@ class AssistedApp:
                 + (f" · notes: {html.escape(_norm(tr.get('notes')))}" if tr.get("notes") else "")
                 + "</div>")
         self.msg.value = ""
-        self.image.value = self._with_box(self._read(r["file_name"], self.big_dirs),
-                                          int(r["photo_id"]))
+        self.box_model = self.model_boxes.get(pid)
+        saved_box = (self.saved or {}).get("crop_box")
+        self.box_value = saved_box if (self.saved and "crop_box" in self.saved) else self.box_model
+        if self.bbox is not None:
+            self._show_in_bbox(r["file_name"], self.box_value, editable=True)
+        else:
+            self.image.value = self._with_box(self._read(r["file_name"], self.big_dirs), pid)
         self.image_label.value = f"Photo {int(r['position'])}" + (
             " · <span style='color:#d00'>red box = model</span>"
-            if int(r["photo_id"]) in self.model_boxes else "")
+            if (self.bbox is None and pid in self.model_boxes) else "")
         self._render_strip(r)
 
         # estado de esta foto: clics y valores manuales (restaurados si ya se guardo)
@@ -448,9 +541,14 @@ class AssistedApp:
 
     def _peek(self, p):
         """Ver otra foto del registro en grande (la tabla sigue siendo de la foto en revision)."""
-        self.image.value = self._with_box(self._read(p["file_name"], self.big_dirs),
-                                          int(p["photo_id"]))
         cur = self.rows.loc[self.i]
+        if self.bbox is not None:
+            same = int(p["photo_id"]) == int(cur["photo_id"])
+            self._show_in_bbox(p["file_name"], self.box_value if same
+                               else self.model_boxes.get(int(p["photo_id"])), editable=same)
+        else:
+            self.image.value = self._with_box(self._read(p["file_name"], self.big_dirs),
+                                              int(p["photo_id"]))
         label = f"Photo {int(p['position'])}"
         if int(p["photo_id"]) != int(cur["photo_id"]):
             label += (f" <b style='color:#b00'>(not the photo under review: "
@@ -532,6 +630,12 @@ class AssistedApp:
                "label_source": "assisted",
                "needs_manual_annotation": not one,
                "saved_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+        if one and self.model_boxes:
+            from .annotate import box_source
+            rec["crop_box"] = self.box_value
+            rec["model_box"] = self.box_model
+            rec["box_source"] = box_source(self.box_value, self.box_model)
+            rec["box_reviewed"] = True          # recuadro mirado aqui (aceptado, rehecho o quitado)
         if one:
             for f in fields[1:]:
                 v = final[f][0]

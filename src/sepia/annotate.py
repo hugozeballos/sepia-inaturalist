@@ -689,7 +689,16 @@ class AnnotationApp:
         pid = int(self.row["photo_id"])
         mb = self.model_boxes.get(pid)
         others = here[here["individual"] != letter] if len(here) else here
-        if mb is None:
+        # Recuadro revisado en la asistida (aceptado o rehecho): tiene prioridad sobre el del modelo
+        pre = self._prefill_row()
+        proposal, origin = mb, f"the model ({self.model_boxes_version})"
+        if pre is not None and pre.get("box_reviewed") == True:   # noqa: E712 (NaN en lineas viejas)
+            cb = pre.get("crop_box")
+            proposal = cb if isinstance(cb, dict) else None      # None: quitado en la asistida
+            origin = "the assisted annotation"
+            if isinstance(pre.get("model_box"), dict):
+                mb = pre["model_box"]
+        if mb is None and proposal is None:
             return
         if isinstance(saved_box, dict):
             self._model_box = mb       # para box_source si se vuelve a guardar
@@ -697,10 +706,13 @@ class AnnotationApp:
         if len(others):
             return                     # varios huesos en la foto: recuadros a mano
         self._model_box = mb
-        self.crop.value = format_crop_box(mb)
+        if proposal is None:
+            return
+        self.crop.value = format_crop_box(proposal)
         self.box_note.value = ("<div style='background:#fff3cd;color:#000;padding:2px 8px'>"
-                               f"Box from the model ({self.model_boxes_version}): Save to accept, "
+                               f"Box from {origin}: Save to accept, "
                                "▭ Draw box to redraw, ✕ to remove</div>")
+        mb = proposal
         if self.bbox is not None and getattr(self, "_box_size", None):
             # recuadros guardados de esta foto + el propuesto (sin restos de otra letra)
             saved = [{**from_crop_box(b, *self._box_size), "label": l}
@@ -712,7 +724,7 @@ class AnnotationApp:
 
     def _box_mark(self, crop_box):
         """model_box y box_source para guardar con el individuo (solo si hay recuadros del modelo)."""
-        if not self.model_boxes:
+        if not self.model_boxes and not isinstance(self._model_box, dict):
             return {}
         src = box_source(crop_box, self._model_box)
         out = {"box_source": src}

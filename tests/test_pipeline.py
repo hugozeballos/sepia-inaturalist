@@ -1601,9 +1601,14 @@ def test_assisted_draws_model_box(api, cfg, monkeypatch):
     from sepia.assisted import AssistedApp
     plain = AssistedApp(cfg, ["photo_traits_v15"])
     app = AssistedApp(cfg, ["photo_traits_v15"], model_boxes="bonebox_v15")
-    assert len(app.model_boxes) == 14 and "red box" in app.image_label.value
-    assert app.image.value != plain.image.value                        # foto con recuadro
-    im = Image.open(io.BytesIO(app.image.value)).convert("RGB")
+    assert len(app.model_boxes) == 14
+    if app.bbox is not None:                                          # con el widget: editable
+        assert len(app.bbox.bboxes) == 1
+        app.model_boxes = dict(app.model_boxes)
+    # sin el widget (o para comprobar el dibujo): recuadro pintado en rojo sobre la foto
+    data = app._with_box(plain.image.value, int(app.rows.loc[app.i, "photo_id"]))
+    assert data != plain.image.value
+    im = Image.open(io.BytesIO(data)).convert("RGB")
     W, H = im.size
     r, g, b = im.getpixel((int(0.2 * W) + 1, int(0.35 * H)))           # borde izquierdo del recuadro
     assert r > 150 and g < 80
@@ -1626,3 +1631,35 @@ def test_assisted_shows_manual(api, cfg, monkeypatch):
     html_all = " ".join(getattr(c, "value", "") for row in app.grid.children
                         for c in getattr(row, "children", []))
     assert "manual" in html_all and "dorsal" in html_all and "final" in html_all
+
+
+def test_assisted_redraw_box_goes_to_annotation(api, cfg, monkeypatch):
+    """Recuadro rehecho en la asistida -> se guarda -> AnnotationApp(prefill) parte con ese."""
+    pytest.importorskip("jupyter_bbox_widget")
+    from sepia import assist as asx, annotate as an
+    from sepia.assisted import AssistedApp, load_assisted
+    _ready(cfg)
+    sepia.make_resized(cfg, 512)
+    monkeypatch.setattr(asx.time, "sleep", lambda s: None)
+    asx.run_assist(cfg, provider=FakePack(), pack_size=5, suffix="")
+    app = AssistedApp(cfg, ["photo_traits_v15"], model_boxes="bonebox_v15")
+    assert app.bbox is not None and len(app.bbox.bboxes) == 1         # recuadro del modelo
+    W, H = app._box_size
+    app.redraw_btn.value = True
+    app.bbox.bboxes = [{"x": 0, "y": 0, "width": W / 2, "height": H / 2, "label": "bone"}]
+    assert app.box_value == {"x0": 0.0, "y0": 0.0, "x1": 0.5, "y1": 0.5}
+    assert "redrawn" in app.box_info.value
+    app._save(go_next=True)                                           # foto 11
+    app._set_box(None)                                                # foto 12: sin recuadro
+    app._save()
+    a = load_assisted(cfg, "HZ").set_index("photo_id")
+    assert a.loc[11, "box_source"] == "model_edited" and a.loc[11, "crop_box"]["x1"] == 0.5
+    assert a.loc[12, "box_reviewed"] and a.loc[12, "box_source"] != a.loc[12, "box_source"]  # NaN
+
+    ann = sepia.AnnotationApp(cfg, "HZ", prefill="assisted", model_boxes="bonebox_v15")
+    assert ann.row["photo_id"] == 11 and ann.crop.value.endswith("0.5000")
+    assert "assisted" in ann.box_note.value
+    ann._safe(ann.on_save_next)
+    assert ann.row["photo_id"] == 12 and ann.crop.value == ""        # quitado en la asistida
+    ind = sepia.load_events(cfg)["individual"].set_index("photo_id")
+    assert ind.loc[11, "box_source"] == "model_edited"
