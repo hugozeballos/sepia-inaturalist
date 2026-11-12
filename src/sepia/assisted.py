@@ -251,6 +251,34 @@ class AssistedApp:
             self._cache[key] = data
         return self._cache[key]
 
+    def _manual_values(self, oid: int, pid: int) -> dict:
+        """
+        Anotacion manual de esta foto (AnnotationApp), si existe, para mostrarla al lado:
+        conteo de la foto y, si hay un solo individuo, lado, erosion y calidad. Se lee en cada
+        foto, asi refleja lo anotado despues de abrir la asistida. Solo se muestra; no se cambia.
+        """
+        from .annotate import load_events
+        ev = load_events(self.cfg)
+        out = {}
+        info = ev["photo_info"]
+        n = info.loc[info["photo_id"].astype("int64") == pid, "n_in_photo"] if len(info) else []
+        ind = ev["individual"]
+        here = ind[ind["photo_id"].astype("int64") == pid] if len(ind) else ind
+        if len(n):
+            out["n_cuttlebones_visible"] = int(n.iloc[0])
+        elif len(here):
+            out["n_cuttlebones_visible"] = len(here)
+        if len(here) == 1:
+            row = here.iloc[0]
+            for f in ("side", "erosion", "photo_quality"):
+                v = row.get(f)
+                if v is not None and v == v:
+                    out[f] = v
+        elif len(here) > 1:
+            for f in ("side", "erosion", "photo_quality"):
+                out[f] = f"{len(here)} individuals"
+        return out
+
     def _with_box(self, data: bytes, photo_id: int) -> bytes:
         """La foto con el recuadro del modelo dibujado en rojo (si hay); si no, tal cual."""
         box = self.model_boxes.get(photo_id)
@@ -318,11 +346,13 @@ class AssistedApp:
         self.clicks = {f: s.split(":", 1)[1] for f, s in src.items()
                        if f in MODEL_FIELDS and isinstance(s, str) and s.startswith("click:")}
         self.manual_inputs, self.cells, self.final_html, self.labels = {}, {}, {}, {}
+        hand = self._manual_values(oid, pid)
         head = [w.HTML("<b style='display:inline-block;width:170px'></b>")] + [
             w.HTML(f"<b style='display:inline-block;width:100px;text-align:center'>"
                    f"{html.escape(v.replace('photo_traits_', ''))}</b>") for v in self.cols] + [
             w.HTML("<b style='display:inline-block;width:110px'>my value</b>"),
-            w.HTML("<b>human</b>")]
+            w.HTML("<b style='display:inline-block;width:150px'>final</b>"),
+            w.HTML("<b title='manual annotation (AnnotationApp), if any'>manual</b>")]
         rows = [w.HBox(head)]
         for f in MODEL_FIELDS:
             mv = self._model_values(f)
@@ -343,9 +373,14 @@ class AssistedApp:
                              layout=w.Layout(width="110px"))
             txt.observe(lambda _, f=f: self._refresh(f), names="value")
             self.manual_inputs[f] = txt
-            self.final_html[f] = w.HTML()
+            self.final_html[f] = w.HTML(layout=w.Layout(width="150px"))
             self.labels[f] = w.HTML()
-            rows.append(w.HBox([self.labels[f], *btns, txt, self.final_html[f]]))
+            hv = hand.get(f)
+            manual_cell = w.HTML(
+                f"<span style='display:inline-block;min-width:70px;padding:2px 6px;"
+                f"background:#d4edda;color:#000;text-align:center'>{html.escape(str(hv))}</span>"
+                if hv not in (None, "") else "<span style='color:#888'>—</span>")
+            rows.append(w.HBox([self.labels[f], *btns, txt, self.final_html[f], manual_cell]))
         legend = ("<small><span style='background:#ffe08a;color:#000;padding:0 4px'>yellow"
                   "</span> = prompts disagree · blue = your choice · click = use that prompt's "
                   "value · my value = choose your own value from the list (wins over click) · "

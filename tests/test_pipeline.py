@@ -1607,3 +1607,22 @@ def test_assisted_draws_model_box(api, cfg, monkeypatch):
     W, H = im.size
     r, g, b = im.getpixel((int(0.2 * W) + 1, int(0.35 * H)))           # borde izquierdo del recuadro
     assert r > 150 and g < 80
+
+
+def test_assisted_shows_manual(api, cfg, monkeypatch):
+    """La asistida muestra al lado la anotacion manual de la foto, si existe."""
+    pytest.importorskip("ipywidgets")
+    from sepia import assist as asx, annotate as an
+    _ready(cfg)
+    sepia.make_resized(cfg, 512)
+    monkeypatch.setattr(asx.time, "sleep", lambda s: None)
+    asx.run_assist(cfg, provider=FakePack(), pack_size=5, suffix="")
+    an.save_individual(cfg, "HZ", 1, 11, "a", {"state": "cuttlebone", "side": "dorsal", "erosion": 2})
+    from sepia.assisted import AssistedApp
+    app = AssistedApp(cfg, ["photo_traits_v15"])
+    assert app.rows.loc[app.i, "photo_id"] == 11
+    assert app._manual_values(1, 11) == {"n_cuttlebones_visible": 1, "side": "dorsal", "erosion": 2}
+    assert app._manual_values(1, 12) == {}
+    html_all = " ".join(getattr(c, "value", "") for row in app.grid.children
+                        for c in getattr(row, "children", []))
+    assert "manual" in html_all and "dorsal" in html_all and "final" in html_all
