@@ -245,15 +245,24 @@ class AssistedApp:
                         w.HBox([save_b, save_next_b]), self.msg,
                         self.evidence],                 # solo lectura: al final
                        layout=w.Layout(margin="0 0 0 12px"))
-        pend_b = w.Button(description="Next pending ⏭",
+        pend_b = w.Button(description="Pending ⏭",
                           tooltip="next photo not saved here and not annotated manually")
-        pend_b.on_click(lambda _: self._go(self._next_pending(self.i + 1)))
+        pend_b.on_click(lambda _: self._go_pending())
         self.box = w.VBox([w.HBox([prev_b, next_b, pend_b, self.jump, go_b]), self.header,
                            w.HBox([left, right], layout=w.Layout(align_items="flex-start"))])
         self._go(self._next_pending(0))              # retoma donde quedo
 
     # ---- navegacion ----
-    def _next_pending(self, start: int = 0) -> int:
+    def _go_pending(self):
+        """Siguiente foto pendiente despues de la actual; si no hay, vuelve a buscar desde el inicio."""
+        n = len(self.rows)
+        j = self._next_pending(self.i + 1, wrap=True)
+        if j is None:
+            self.msg.value = "<b>All photos done 🎉</b>"
+            return
+        self._go(j)
+
+    def _next_pending(self, start: int = 0, wrap: bool = False):
         """
         Primera foto desde 'start' que no esta guardada en la asistida ni anotada a mano
         (AnnotationApp). Si no queda ninguna, la ultima foto.
@@ -270,10 +279,13 @@ class AssistedApp:
             if len(ev[k]):
                 done |= set(ev[k]["photo_id"].dropna().astype("int64"))
         pids = self.rows["photo_id"].astype("int64").tolist()
-        for i in range(max(0, start), len(pids)):
+        order = list(range(max(0, start), len(pids)))
+        if wrap:
+            order += list(range(0, min(start, len(pids))))
+        for i in order:
             if pids[i] not in done:
                 return i
-        return len(pids) - 1
+        return None if wrap else len(pids) - 1
     def _go(self, i):
         if self.rows.empty:
             self.header.value = "<b>No photos with 1 cuttlebone for any prompt</b>"

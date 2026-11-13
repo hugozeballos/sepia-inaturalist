@@ -1702,3 +1702,22 @@ def test_assisted_resumes_at_pending(api, cfg, monkeypatch):
     an.save_individual(cfg, "HZ", 1, 12, "a", {"state": "cuttlebone"})  # foto 2 anotada a mano
     again = AssistedApp(cfg, ["photo_traits_v15"])
     assert again.i == 2 and again._next_pending(3) == 3
+    again._go(len(again.rows) - 1); again._go_pending()
+    assert again.i == 2                                              # vuelve a buscar desde el inicio
+
+
+def test_annotation_next_pending_after_current(api, cfg):
+    """'Pending ⏭' va a la siguiente foto sin anotar DESPUES de la actual (y vuelve al inicio)."""
+    pytest.importorskip("ipywidgets")
+    from sepia import annotate as an
+    _ready(cfg)
+    an.save_individual(cfg, "HZ", 2, 21, "a", {"state": "cuttlebone"})
+    app = sepia.AnnotationApp(cfg, "HZ", boxes=False)
+    assert app.row["photo_id"] == 11
+    app.on_next(); app.on_next()                    # foto 21 (anotada)
+    assert app.row["photo_id"] == 21
+    app.on_pending()
+    assert app.row["photo_id"] == 22                # la siguiente sin anotar, no la primera
+    app._go(len(app.queue) - 1)
+    app.on_pending()
+    assert app.row["photo_id"] == 11                # al final, vuelve a buscar desde el inicio

@@ -561,8 +561,8 @@ class AnnotationApp:
             btn("Save + another here", self.on_save_here, "info"),
             btn("Delete individual", self.on_delete, "danger"),
             w.HTML("<hr style='margin:6px 0'>"),
-            w.HBox([btn("◀ Prev", self.on_prev), btn("Next ▶", self.on_next)]),
-            btn("Next pending ⏭", self.on_pending),
+            w.HBox([btn("◀ Prev", self.on_prev), btn("Next ▶", self.on_next),
+                    btn("Pending ⏭", self.on_pending)]),
             btn("Photo without individuals", self.on_empty, "warning"),
             btn("Save count only ▶", self.on_count_only, "warning"),
             w.HBox([self.dup_of, btn("Same as ▶", self.on_duplicate, "warning")]),
@@ -1111,12 +1111,21 @@ class AnnotationApp:
         self._go(nxt[0] if nxt else self.i)
 
     def on_pending(self):
-        """Salta a la primera foto sin anotar."""
-        i = first_pending(self.queue, self.events)
-        if i is None:
-            self.msg.value = "<b>All photos annotated 🎉</b>"
-            return
-        self._go(i)
+        """
+        Salta a la SIGUIENTE foto sin anotar despues de la actual (si no hay mas adelante,
+        vuelve a buscar desde el principio). Respeta photo_ids y salta registros excluidos.
+        """
+        done = done_photos(self.events)
+        excluded = set(self.events["exclude_record"]["observation_id"].astype(int))
+        chosen = self._chosen()
+        after = [j for j in chosen if j > self.i] + [j for j in chosen if j <= self.i]
+        for j in after:
+            r = self.queue.loc[j]
+            oid, pid = int(r["observation_id"]), int(r["photo_id"])
+            if oid not in excluded and (oid, pid) not in done:
+                self._go(j)
+                return
+        self.msg.value = "<b>All photos annotated 🎉</b>"
 
     def on_jump(self):
         """Salta al registro con el ID escrito."""
