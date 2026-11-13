@@ -1629,6 +1629,8 @@ def test_assisted_shows_manual(api, cfg, monkeypatch):
     an.save_individual(cfg, "HZ", 1, 11, "a", {"state": "cuttlebone", "side": "dorsal", "erosion": 2})
     from sepia.assisted import AssistedApp
     app = AssistedApp(cfg, ["photo_traits_v15"])
+    assert app.rows.loc[app.i, "photo_id"] == 12          # abre en la pendiente (11 ya anotada)
+    app._go(0)
     assert app.rows.loc[app.i, "photo_id"] == 11
     assert app._manual_values(1, 11) == {"n_cuttlebones_visible": 1, "side": "dorsal", "erosion": 2}
     assert app._manual_values(1, 12) == {}
