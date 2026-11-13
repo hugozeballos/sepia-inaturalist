@@ -6,7 +6,10 @@ Reglas por atributo (conteo, lado, erosion, calidad), en orden de prioridad:
   1. manual: la persona escribe el valor            -> source = "manual"
   2. clic:   la persona elige el valor de un prompt  -> source = "click:<version>"
   3. todos los prompts coinciden (tambien 'unclear') -> source = "all_agree"
-  Si los prompts no coinciden y no hay clic ni valor manual, la foto no se puede guardar.
+  4. moda: el valor que da la mayoria de los prompts (mas votos, sin empate)
+                                                     -> source = "mode:<votos>/<prompts con valor>"
+  Se muestra como sugerencia explicita (celdas en verde). Si hay empate, no hay sugerencia y hay
+  que elegir; sin clic ni valor manual la foto no se puede guardar.
 Nada se guarda solo: se guarda al apretar Save (la persona miro la foto).
 
 Otros campos (estado, picoteo, epibiontes, certeza, notas, picorocos) se llenan a mano, con
@@ -121,6 +124,11 @@ def resolve(model_values: dict, click: str | None = None, manual: str = "") -> t
     vals = [v for v in model_values.values() if v not in NO_VALUE]
     if vals and len(vals) == len([v for v in model_values.values()]) and len(set(vals)) == 1:
         return vals[0], "all_agree"
+    if vals:                                   # moda: mas votos, sin empate
+        from collections import Counter
+        top = Counter(vals).most_common()
+        if len(top) == 1 or top[0][1] > top[1][1]:
+            return top[0][0], f"mode:{top[0][1]}/{len(vals)}"
     return "", ""
 
 
@@ -482,10 +490,11 @@ class AssistedApp:
                 "<span style='display:block;text-align:center;color:#888'>—</span>")
             cells += [self.labels[f], *btns, txt, self.final_html[f], manual_cell]
         legend = ("<small><span style='background:#ffe08a;color:#000;padding:0 4px'>yellow"
-                  "</span> = prompts disagree · blue = your choice · click = use that prompt's "
-                  "value · my value = choose your own value from the list (wins over click) · "
-                  "if all prompts agree their value is proposed · nothing is saved until you "
-                  "press Save</small>")
+                  "</span> = prompts disagree · <span style='background:#5cb85c;color:#fff;"
+                  "padding:0 4px'>green</span> = suggested value (mode of the prompts; kept if "
+                  "you do nothing) · blue = your choice · click = use that prompt's value · "
+                  "my value = choose your own value from the list (wins over click) · a tie "
+                  "has no suggestion: choose · nothing is saved until you press Save</small>")
         table = w.GridBox(cells, layout=w.Layout(
             grid_template_columns=f"150px repeat({len(self.versions)}, 72px) 92px 110px 64px",
             grid_gap="4px 4px", align_items="center"))
@@ -579,8 +588,14 @@ class AssistedApp:
         mv = self._model_values(field)
         decided = [x for x in mv.values() if x not in NO_VALUE]
         differ = len(set(decided)) > 1 or len(decided) < len(mv)
+        is_mode = source.startswith("mode:")
         for v, b in self.cells[field].items():
-            b.button_style = "info" if v == chosen else ("warning" if differ else "")
+            if v == chosen:
+                b.button_style = "info"                  # tu clic
+            elif is_mode and mv.get(v) == value:
+                b.button_style = "success"               # forman la moda sugerida
+            else:
+                b.button_style = "warning" if differ else ""
         self.labels[field].value = (
             "<b style='display:inline-block;width:170px;padding:2px 4px;"
             + ("background:#ffe08a;color:#000" if differ else "") + f"'>{field}"
@@ -590,8 +605,10 @@ class AssistedApp:
         else:
             err = validate(field, value) if source == "manual" else None
             color = "#b00" if err else "#000"
+            shown = (f"suggested: mode {source.split(':', 1)[1]}" if source.startswith("mode:")
+                     else source)
             txt = (f"<b style='color:{color}'>{html.escape(value)}</b> "
-                   f"<small style='color:#666'>({source})</small>"
+                   f"<small style='color:#666'>({shown})</small>"
                    + (f"<br><small style='color:#b00'>{html.escape(err)}</small>" if err else ""))
         self.final_html[field].value = txt
         if field == "side" and update_defaults and "bitemarks" not in self.touched:

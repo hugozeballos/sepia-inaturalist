@@ -1129,8 +1129,12 @@ def test_assisted_rules(tmp_path):
     m = {"v1": "dorsal", "v2": "dorsal"}
     assert resolve(m) == ("dorsal", "all_agree")
     assert resolve({"v1": "unclear", "v2": "unclear"}) == ("unclear", "all_agree")
-    assert resolve({"v1": "dorsal", "v2": "ventral"}) == ("", "")
-    assert resolve({"v1": "dorsal", "v2": ""}) == ("", "")                 # falta un prompt
+    assert resolve({"v1": "dorsal", "v2": "ventral"}) == ("", "")          # empate: elegir
+    assert resolve({"v1": "dorsal", "v2": ""}) == ("dorsal", "mode:1/1")   # falta un prompt
+    assert resolve({"a": "dorsal", "b": "dorsal", "c": "dorsal", "d": "ventral"}) == ("dorsal", "mode:3/4")
+    assert resolve({"a": "1", "b": "1", "c": "2", "d": "2"}) == ("", "")    # empate 2-2
+    assert resolve({"a": "1", "b": "1", "c": "2", "d": "3"}) == ("1", "mode:2/4")
+    assert resolve({"a": "1", "b": "1", "c": "2"}, click="c") == ("2", "click:c")
     assert resolve({"v1": "dorsal", "v2": "ventral"}, click="v2") == ("ventral", "click:v2")
     assert resolve(m, click="v1", manual=" ventral ") == ("ventral", "manual")
     assert validate("side", "dorsal") is None and validate("side", "dorsl")
