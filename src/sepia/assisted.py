@@ -245,11 +245,35 @@ class AssistedApp:
                         w.HBox([save_b, save_next_b]), self.msg,
                         self.evidence],                 # solo lectura: al final
                        layout=w.Layout(margin="0 0 0 12px"))
-        self.box = w.VBox([w.HBox([prev_b, next_b, self.jump, go_b]), self.header,
+        pend_b = w.Button(description="Next pending ⏭",
+                          tooltip="next photo not saved here and not annotated manually")
+        pend_b.on_click(lambda _: self._go(self._next_pending(self.i + 1)))
+        self.box = w.VBox([w.HBox([prev_b, next_b, pend_b, self.jump, go_b]), self.header,
                            w.HBox([left, right], layout=w.Layout(align_items="flex-start"))])
-        self._go(0)
+        self._go(self._next_pending(0))              # retoma donde quedo
 
     # ---- navegacion ----
+    def _next_pending(self, start: int = 0) -> int:
+        """
+        Primera foto desde 'start' que no esta guardada en la asistida ni anotada a mano
+        (AnnotationApp). Si no queda ninguna, la ultima foto.
+        """
+        if self.rows.empty:
+            return 0
+        done = set()
+        a = load_assisted(self.cfg, self.annotator)
+        if len(a):
+            done |= set(a["photo_id"].astype("int64"))
+        from .annotate import load_events
+        ev = load_events(self.cfg)
+        for k in ("individual", "photo_info", "empty_photo", "duplicate_photo"):
+            if len(ev[k]):
+                done |= set(ev[k]["photo_id"].dropna().astype("int64"))
+        pids = self.rows["photo_id"].astype("int64").tolist()
+        for i in range(max(0, start), len(pids)):
+            if pids[i] not in done:
+                return i
+        return len(pids) - 1
     def _go(self, i):
         if self.rows.empty:
             self.header.value = "<b>No photos with 1 cuttlebone for any prompt</b>"
