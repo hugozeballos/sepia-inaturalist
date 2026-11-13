@@ -13,9 +13,9 @@ Otros campos (estado, picoteo, epibiontes, certeza, notas, picorocos) se llenan 
 valores por defecto: estado cuttlebone, epibiontes no, certeza 1, picoteo segun el lado
 (dorsal -> no, ventral -> yes). Si no se tocan, su source es "default".
 
-Triaje (cfg.triage): su conteo por foto es una columna mas en la fila del conteo (cuenta para
-"todos coinciden" y se puede clicar); el estado del registro segun el triaje se muestra arriba
-y es el valor por defecto del estado.
+Triaje (cfg.triage): se muestra arriba, fuera de la tabla (estado del registro, huesos y lo que
+ve en esta foto); no cuenta para "todos coinciden". Su contenido por foto es el valor por
+defecto del estado. La columna "manual" muestra la anotacion de AnnotationApp, si existe.
 
 Solo fotos con 1 hueso. Si algun prompt (o el triaje) ve 1 hueso pero el conteo final no es 1, se guarda
 solo el conteo y la foto queda para anotarla despues en AnnotationApp.
@@ -385,10 +385,8 @@ class AssistedApp:
     # ---- valores ----
     def _model_values(self, field) -> dict:
         r = self.rows.loc[self.i]
-        out = {v: _norm(r.get(f"{field}__{v}")) for v in self.versions}
-        if field == "n_cuttlebones_visible" and TRIAGE in self.cols:
-            out[TRIAGE] = _norm(r.get(f"{field}__{TRIAGE}"))       # el triaje solo da el conteo
-        return out
+        # Solo los prompts: el triaje se muestra arriba (recuadro "Triage"), fuera de la tabla
+        return {v: _norm(r.get(f"{field}__{v}")) for v in self.versions}
 
     def _final(self, field) -> tuple[str, str]:
         return resolve(self._model_values(field), self.clicks.get(field),
@@ -440,20 +438,21 @@ class AssistedApp:
                        if f in MODEL_FIELDS and isinstance(s, str) and s.startswith("click:")}
         self.manual_inputs, self.cells, self.final_html, self.labels = {}, {}, {}, {}
         hand = self._manual_values(oid, pid)
-        head = [w.HTML("<b style='display:inline-block;width:170px'></b>")] + [
-            w.HTML(f"<b style='display:inline-block;width:100px;text-align:center'>"
-                   f"{html.escape(v.replace('photo_traits_', ''))}</b>") for v in self.cols] + [
-            w.HTML("<b style='display:inline-block;width:110px'>my value</b>"),
-            w.HTML("<b style='display:inline-block;width:150px'>final</b>"),
-            w.HTML("<b title='manual annotation (AnnotationApp), if any'>manual</b>")]
-        rows = [w.HBox(head)]
+        # Tabla en una grilla: los titulos quedan siempre alineados con sus columnas
+        center = "<b style='display:block;text-align:center'>{}</b>"
+        cells = [w.HTML("")] + [
+            w.HTML(center.format(html.escape(v.replace("photo_traits_", ""))))
+            for v in self.versions] + [
+            w.HTML(center.format("my value")), w.HTML(center.format("final")),
+            w.HTML("<b style='display:block;text-align:center' "
+                   "title='manual annotation (AnnotationApp), if any'>manual</b>")]
         for f in MODEL_FIELDS:
             mv = self._model_values(f)
             btns = []
             self.cells[f] = {}
-            for v in self.cols:
+            for v in self.versions:
                 val = mv.get(v, "")
-                b = w.Button(description=val or "—", layout=w.Layout(width="100px"),
+                b = w.Button(description=val or "—", layout=w.Layout(width="auto"),
                              disabled=val in NO_VALUE, tooltip=f"use {v}")
                 b.on_click(lambda _, f=f, v=v: self._click(f, v))
                 btns.append(b)
@@ -463,23 +462,29 @@ class AssistedApp:
             prev = str(vals.get(f, "")) if src.get(f) == "manual" else ""
             txt = w.Dropdown(options=WRITE_OPTIONS[f],
                              value=prev if prev in WRITE_OPTIONS[f] else "",
-                             layout=w.Layout(width="110px"))
+                             layout=w.Layout(width="auto"))
             txt.observe(lambda _, f=f: self._refresh(f), names="value")
             self.manual_inputs[f] = txt
-            self.final_html[f] = w.HTML(layout=w.Layout(width="150px"))
+            self.final_html[f] = w.HTML()
             self.labels[f] = w.HTML()
             hv = hand.get(f)
+            if isinstance(hv, float) and hv == hv and hv.is_integer():
+                hv = int(hv)                                    # 3.0 -> 3
             manual_cell = w.HTML(
-                f"<span style='display:inline-block;min-width:70px;padding:2px 6px;"
-                f"background:#d4edda;color:#000;text-align:center'>{html.escape(str(hv))}</span>"
-                if hv not in (None, "") else "<span style='color:#888'>—</span>")
-            rows.append(w.HBox([self.labels[f], *btns, txt, self.final_html[f], manual_cell]))
+                f"<span style='display:block;padding:4px 6px;background:#d4edda;color:#000;"
+                f"text-align:center'>{html.escape(str(hv))}</span>"
+                if hv not in (None, "") else
+                "<span style='display:block;text-align:center;color:#888'>—</span>")
+            cells += [self.labels[f], *btns, txt, self.final_html[f], manual_cell]
         legend = ("<small><span style='background:#ffe08a;color:#000;padding:0 4px'>yellow"
                   "</span> = prompts disagree · blue = your choice · click = use that prompt's "
                   "value · my value = choose your own value from the list (wins over click) · "
                   "if all prompts agree their value is proposed · nothing is saved until you "
                   "press Save</small>")
-        self.grid.children = rows + [w.HTML(legend)]
+        table = w.GridBox(cells, layout=w.Layout(
+            grid_template_columns=f"170px repeat({len(self.versions)}, 100px) 110px 150px 100px",
+            grid_gap="4px 4px", align_items="center"))
+        self.grid.children = [table, w.HTML(legend)]
         for f in MODEL_FIELDS:
             self._refresh(f, update_defaults=False)
 
