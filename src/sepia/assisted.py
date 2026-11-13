@@ -321,8 +321,11 @@ class AssistedApp:
 
     # ---- recuadro editable ----
     def _photo_path(self, file_name):
+        """Foto para el recuadro: la version de 512 px (cabe entera en pantalla y el recuadro
+        se ve completo); si no existe, la de 1024 px u original. El recuadro es relativo (0-1),
+        asi que vale para cualquier tamano."""
         name = Path(file_name).stem + ".jpg"
-        for d in self.big_dirs:
+        for d in [self.thumb_dirs[0]] + self.big_dirs:
             for f in (d / name, d / file_name):
                 if f.exists():
                     return f
