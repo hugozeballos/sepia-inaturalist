@@ -420,8 +420,13 @@ class AssistedApp:
                 + "</div>")
         self.msg.value = ""
         self.box_model = self.model_boxes.get(pid)
-        saved_box = (self.saved or {}).get("crop_box")
-        self.box_value = saved_box if (self.saved and "crop_box" in self.saved) else self.box_model
+        # Recuadro ya revisado aqui (aceptado, rehecho o quitado): ese. Si no (foto sin guardar o
+        # guardada antes de los recuadros, con NaN en la columna): el del modelo.
+        if self.saved and self.saved.get("box_reviewed") == True:   # noqa: E712
+            saved_box = self.saved.get("crop_box")
+            self.box_value = saved_box if isinstance(saved_box, dict) else None
+        else:
+            self.box_value = self.box_model
         if self.bbox is not None:
             self._show_in_bbox(r["file_name"], self.box_value, editable=True)
         else:
@@ -482,7 +487,7 @@ class AssistedApp:
                   "if all prompts agree their value is proposed · nothing is saved until you "
                   "press Save</small>")
         table = w.GridBox(cells, layout=w.Layout(
-            grid_template_columns=f"170px repeat({len(self.versions)}, 100px) 110px 150px 100px",
+            grid_template_columns=f"150px repeat({len(self.versions)}, 72px) 92px 110px 64px",
             grid_gap="4px 4px", align_items="center"))
         self.grid.children = [table, w.HTML(legend)]
         for f in MODEL_FIELDS:

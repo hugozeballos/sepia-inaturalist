@@ -1663,3 +1663,19 @@ def test_assisted_redraw_box_goes_to_annotation(api, cfg, monkeypatch):
     assert ann.row["photo_id"] == 12 and ann.crop.value == ""        # quitado en la asistida
     ind = sepia.load_events(cfg)["individual"].set_index("photo_id")
     assert ind.loc[11, "box_source"] == "model_edited"
+
+
+def test_assisted_box_after_old_save(api, cfg, monkeypatch):
+    """Foto guardada en la asistida ANTES de los recuadros: igual muestra el recuadro del modelo."""
+    pytest.importorskip("jupyter_bbox_widget")
+    from sepia import assist as asx
+    from sepia.assisted import AssistedApp, assisted_file
+    _ready(cfg)
+    sepia.make_resized(cfg, 512)
+    monkeypatch.setattr(asx.time, "sleep", lambda s: None)
+    asx.run_assist(cfg, provider=FakePack(), pack_size=5, suffix="")
+    AssistedApp(cfg, ["photo_traits_v15"])._save()                  # guardada sin recuadros
+    app = AssistedApp(cfg, ["photo_traits_v15"], model_boxes="bonebox_v15")
+    app._set_box({"x0": 0.1, "y0": 0.1, "x1": 0.4, "y1": 0.4})       # otra foto con recuadro guardado
+    app._go(1); app._save(); app._go(0)
+    assert app.saved is not None and app.box_value == app.box_model and len(app.bbox.bboxes) == 1
