@@ -1739,6 +1739,15 @@ def test_status(api, cfg, monkeypatch):
     tr = t.loc[("triage", "triage_v15")]
     assert tr["done"] == 7 and tr["of"] == 7 and tr["repeated"] == 1 and tr["pct"] == "100%"
     a = t.loc[("assist", "assist_v15")]
-    assert a["done"] == 3 and a["records_done"] == 8
+    assert a["unit"] == "records" and a["done"] == 7 and a["of"] == 7 and a["calls"] == 3
+    from sepia import annotate as an
+    an.save_individual(cfg, "HZ", 1, 11, "a", {"state": "cuttlebone"},
+                       crop_box={"x0": 0, "y0": 0, "x1": 0.5, "y1": 0.5})
+    an.save_photo_count(cfg, "HZ", 1, 12, 1)
+    ann = st.annotation_status(cfg).set_index("annotation")
+    m = ann.loc["manual (AnnotationApp)"]
+    assert m["photos"] == 2 and m["records_done"] == 1 and m["individuals"] == 1 and m["with_box"] == 1
+    dl, ms = st.show_status(cfg)                                     # se muestra sin errores
+    assert "annotation" in ms.attrs
     rep = st.repeated_units(cfg, "triage", "triage_v15")
     assert list(rep["observation_id"].unique()) == [1] and len(rep) == 2

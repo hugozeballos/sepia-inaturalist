@@ -82,8 +82,12 @@ def model_status(cfg: Config) -> pd.DataFrame:
         row = {"run": Path(cfg.base_dir).name, "step": kind, "version": version, "model": model,
                "lines": len(df), "last": str(df["saved_at"].max())[:16] if "saved_at" in df else ""}
         if kind == "assist":
-            rec_ok = sum(len(x) for x in ok.get("records_ok", pd.Series(dtype=object)).dropna())
-            row.update(done=len(ok), of=None, unit="calls", records_done=rec_ok,
+            rec_ok = set()
+            for x in ok.get("records_ok", pd.Series(dtype=object)).dropna():
+                rec_ok |= {int(i) for i in x}
+            # misma unidad que el triaje (registros); las consultas van aparte
+            row.update(done=len(rec_ok), of=len(obs), unit="records", records_done=len(rec_ok),
+                       calls=len(df),
                        errors_pending=int(df["error"].notna().sum()) if "error" in df else 0,
                        repeated=None,
                        tokens_in=int(df.get("input_tokens", pd.Series(dtype=float)).fillna(0).sum()),
@@ -108,17 +112,86 @@ def model_status(cfg: Config) -> pd.DataFrame:
         elif unit == "observation_id":
             row["records_done"] = len(done)
         tok = ok.drop_duplicates("call_id") if "call_id" in ok else ok
+        if kind != "bonebox" or "call_id" not in ok:
+            row["calls"] = (int(df["call_id"].nunique()) if "call_id" in df else len(df))
+        if "source_prompt" in df and df["source_prompt"].notna().any():
+            row["calls"] = None                 # lineas derivadas de v15: consultas en 'assist'
+            tok = tok.iloc[0:0]
         row["tokens_in"] = int(tok.get("input_tokens", pd.Series(dtype=float)).fillna(0).sum())
         row["tokens_out"] = int(tok.get("output_tokens", pd.Series(dtype=float)).fillna(0).sum())
         rows.append(row)
-    cols = ["run", "step", "version", "model", "unit", "done", "of", "records_done",
-            "errors_pending", "repeated", "lines", "tokens_in", "tokens_out", "last"]
+    cols = ["run", "step", "version", "model", "unit", "done", "of", "pct", "records_done",
+            "errors_pending", "repeated", "calls", "tokens_in", "tokens_out", "last"]
     t = pd.DataFrame(rows)
     if t.empty:
         return pd.DataFrame(columns=cols)
+    t["pct"] = [f"{d / o:.0%}" if o == o and o else "" for d, o in zip(t["done"], t["of"])]
+    if "calls" not in t:
+        t["calls"] = None
+    # consultas: en pasos por registro o foto, una linea buena = una respuesta (por registro en
+    # photo_traits v5+: se cuentan los call_id distintos)
     t = t.reindex(columns=cols)
-    t["pct"] = [f"{d / o:.0%}" if o else "" for d, o in zip(t["done"], t["of"])]
-    return t.sort_values(["run", "step", "version"]).reset_index(drop=True)
+    t = t.sort_values(["run", "step", "version"]).reset_index(drop=True)
+    for c in ("of", "records_done", "repeated", "calls"):
+        t[c] = t[c].astype("Int64")             # enteros; vacio en vez de NaN
+    return t
+
+
+def annotation_status(cfg: Config) -> pd.DataFrame:
+    """
+    Avance de la anotacion, por anotador:
+    - manual (AnnotationApp, annotations/): fotos revisadas (con individuos, solo conteo, sin
+      individuos o repetidas), registros con todas sus fotos revisadas, individuos, con recuadro,
+      prellenados desde la asistida, registros excluidos;
+    - asistida (annotations_assisted/): fotos guardadas y cuantas quedan para AnnotationApp
+      (conteo distinto de 1).
+    """
+    from .annotate import load_events, done_photos
+    p = paths(cfg)
+    pho = read_jsonl(p["tables"] / "photos.jsonl")
+    obs = read_jsonl(p["tables"] / "observations.jsonl")
+    n_by_rec = pho.groupby("observation_id")["photo_id"].nunique() if len(pho) else pd.Series(dtype=int)
+    rows = []
+    ev = load_events(cfg)
+    done = done_photos(ev)
+    if done:
+        d = pd.DataFrame(list(done), columns=["observation_id", "photo_id"])
+        per = d.groupby("observation_id")["photo_id"].nunique()
+        ind = ev["individual"]
+        rows.append({
+            "run": Path(cfg.base_dir).name, "annotation": "manual (AnnotationApp)",
+            "photos": len(done), "of": len(pho),
+            "records_done": int((per == n_by_rec.reindex(per.index)).sum()),
+            "records_of": len(obs), "individuals": len(ind),
+            "with_box": int(ind["crop_box"].apply(lambda b: isinstance(b, dict)).sum())
+            if "crop_box" in ind else 0,
+            "from_assisted": int((ind.get("prefilled_from") == "assisted").sum())
+            if "prefilled_from" in ind else 0,
+            "excluded_records": len(ev["exclude_record"])})
+    adir = p["base"] / "annotations_assisted"
+    for f in sorted(adir.glob("*.jsonl")) if adir.exists() else []:
+        a = read_jsonl(f)
+        if a.empty:
+            continue
+        a = a.sort_values("saved_at").drop_duplicates("photo_id", keep="last")
+        rows.append({"run": Path(cfg.base_dir).name, "annotation": f"assisted ({f.stem})",
+                     "photos": len(a), "of": len(pho),
+                     "records_done": None, "records_of": len(obs),
+                     "individuals": int((a["n_cuttlebones_visible"] == 1).sum())
+                     if "n_cuttlebones_visible" in a else None,
+                     "with_box": int(a["crop_box"].apply(lambda b: isinstance(b, dict)).sum())
+                     if "crop_box" in a else 0,
+                     "from_assisted": None,
+                     "excluded_records": None,
+                     "needs_annotationapp": int(a.get("needs_manual_annotation",
+                                                      pd.Series(dtype=bool)).fillna(False).sum())})
+    t = pd.DataFrame(rows)
+    if len(t):
+        t.insert(3, "pct", [f"{x / o:.0%}" if o else "" for x, o in zip(t["photos"], t["of"])])
+        for c in t.columns:
+            if c not in ("run", "annotation", "pct"):
+                t[c] = t[c].astype("Int64")
+    return t
 
 
 def repeated_units(cfg: Config, step: str, version: str) -> pd.DataFrame:
@@ -146,12 +219,19 @@ def show_status(cfgs) -> tuple[pd.DataFrame, pd.DataFrame]:
     cfgs = cfgs if isinstance(cfgs, (list, tuple)) else [cfgs]
     dl = pd.DataFrame([download_status(c) for c in cfgs])
     ms = pd.concat([model_status(c) for c in cfgs], ignore_index=True)
+    an = pd.concat([annotation_status(c) for c in cfgs], ignore_index=True)
     print("DESCARGA")
     display(dl)
-    print("\nMODELOS (done/of = hechos/total · records_done = registros con todas sus fotos · "
-          "errors_pending = se reintentan al relanzar · repeated = respondidos mas de una vez, "
-          "vale la ultima)")
-    display(ms)
+    print("\nMODELOS · unit = en que se cuenta done/of: registros (triaje, v15) o fotos (v12-v15, "
+          "recuadros) · records_done = registros con todas sus fotos · errors_pending = se "
+          "reintentan al relanzar · repeated = respondidos mas de una vez (vale la ultima) · "
+          "calls = consultas a la API (v15: en la fila assist)")
+    display(ms.astype(object).fillna("") if len(ms) else ms)
+    print("\nANOTACION · photos = fotos revisadas · records_done = registros con todas sus fotos "
+          "revisadas a mano · with_box = con recuadro · from_assisted = prellenados desde la "
+          "asistida · needs_annotationapp = guardadas en la asistida con conteo distinto de 1")
+    display(an.astype(object).fillna("") if len(an) else an)
+    ms.attrs["annotation"] = an
     rep = ms[ms["repeated"].fillna(0) > 0] if len(ms) else ms
     if len(rep):
         print("\nHay repetidos. Para verlos: sepia.status.repeated_units(cfg, '<step>', '<version>')")
