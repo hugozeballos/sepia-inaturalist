@@ -1721,3 +1721,24 @@ def test_annotation_next_pending_after_current(api, cfg):
     app._go(len(app.queue) - 1)
     app.on_pending()
     assert app.row["photo_id"] == 11                # al final, vuelve a buscar desde el inicio
+
+
+def test_status(api, cfg, monkeypatch):
+    """Estado general: descarga y, por version de prompt, hechos, pendientes y repetidos."""
+    from sepia import assist as asx, status as st
+    _ready(cfg)
+    d = st.download_status(cfg)
+    assert d["records"] == 7 and d["photos"] == 14 and d["photos_original"] == 14
+    assert d["photos_1024px"] == 14 and d["photos_missing"] == 0
+    monkeypatch.setattr(asx.time, "sleep", lambda s: None)
+    asx.run_assist(cfg, provider=FakePack(), pack_size=5, suffix="")
+    asx.run_assist(cfg, provider=FakePack(), pack_size=5, suffix="", ids=[1], redo=True)   # repite 1
+    t = st.model_status(cfg).set_index(["step", "version"])
+    pt = t.loc[("photo_traits", "photo_traits_v15")]
+    assert pt["done"] == 14 and pt["of"] == 14 and pt["records_done"] == 7 and pt["repeated"] == 2
+    tr = t.loc[("triage", "triage_v15")]
+    assert tr["done"] == 7 and tr["of"] == 7 and tr["repeated"] == 1 and tr["pct"] == "100%"
+    a = t.loc[("assist", "assist_v15")]
+    assert a["done"] == 3 and a["records_done"] == 8
+    rep = st.repeated_units(cfg, "triage", "triage_v15")
+    assert list(rep["observation_id"].unique()) == [1] and len(rep) == 2

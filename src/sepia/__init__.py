@@ -19,6 +19,8 @@ from . import bonebox
 from .bonebox import run_bonebox, load_bonebox
 from . import assist
 from .assist import run_assist
+from . import status
+from .status import show_status
 from . import sectors
 from .sectors import load_sectors, assign_sector
 
