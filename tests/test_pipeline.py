@@ -153,8 +153,9 @@ def test_excel(api, cfg):
     assert ident[:10] == ["n° observation", "ID", "photo ID", "site", "latitude", "longitude",
                           "place", "observed on", "season", "url"]      # Martin + photo ID
     assert "side (cuttlebone)" in ident and "dorsal side (cuttlebone)" not in ident
-    assert ident[-3] == "possible genus/specie of balano"
-    assert ident[-2:] == ["same photo as (photo ID)", "same bone as other record (ID:letter)"]
+    assert ident[-5] == "possible genus/specie of balano"
+    assert ident[-4:] == ["same photo as (photo ID)", "same bone as other record (ID:letter)",
+                          "marks [[x0, y0, x1, y1], ...]", "note mark"]
     assert all(r["season"] is None and r["site"] == "A" for r in rows)   # season pendiente; sector A
     assert all(r["label_source"] != "gpt" for r in rows)                  # solo anotacion manual
 
@@ -1751,3 +1752,38 @@ def test_status(api, cfg, monkeypatch):
     assert "annotation" in ms.attrs
     rep = st.repeated_units(cfg, "triage", "triage_v15")
     assert list(rep["observation_id"].unique()) == [1] and len(rep) == 2
+
+
+def test_marks(api, cfg):
+    """Marcas: varios recuadros chicos con 'Mark', se guardan como [[x0,y0,x1,y1],...] + nota."""
+    pytest.importorskip("jupyter_bbox_widget")
+    from sepia import annotate as an
+    assert an.parse_marks("") is None and an.parse_marks(None) is None
+    assert an.parse_marks("[[0.1, 0.2, 0.3, 0.4]]") == [[0.1, 0.2, 0.3, 0.4]]
+    with pytest.raises(ValueError):
+        an.parse_marks("[[0.5, 0.2, 0.3, 0.4]]")                 # x0 > x1
+    with pytest.raises(ValueError):
+        an.parse_marks("nonsense")
+    assert an.format_marks([[0.1, 0.2, 0.3, 0.4]]) == "[[0.1000, 0.2000, 0.3000, 0.4000]]"
+    _ready(cfg)
+    app = sepia.AnnotationApp(cfg, annotator="HZ")
+    W, H = app._box_size
+    app.mark_btn.value = True
+    assert app.bbox.label == "mark" and app.bbox.view_only is False
+    app.bbox.bboxes = [{"x": 0, "y": 0, "width": W / 10, "height": H / 10, "label": "mark"}]
+    app.bbox.bboxes = app.bbox.bboxes + [{"x": W / 2, "y": H / 2, "width": W / 10,
+                                          "height": H / 10, "label": "mark"}]
+    assert app.inputs["marks"].value.count("[") == 3                # 2 marcas
+    app.mark_btn.value = False
+    app.inputs["note_mark"].value = "bite marks on the edge"
+    app.inputs["state"].value = "cuttlebone"
+    app._safe(app.on_save)
+    ind = sepia.load_events(cfg)["individual"].iloc[0]
+    assert ind["marks"] == [[0.0, 0.0, 0.1, 0.1], [0.5, 0.5, 0.6, 0.6]]
+    assert ind["note_mark"] == "bite marks on the edge"
+    assert len([b for b in app.bbox.bboxes if b["label"] == "mark"]) == 2   # recargadas
+    app._clear_marks()
+    assert app.inputs["marks"].value == "" and not [b for b in app.bbox.bboxes if b["label"] == "mark"]
+    r = _excel_rows(sepia.build_excel(cfg, "marks.xlsx"))[1][0]
+    assert json.loads(r["marks [[x0, y0, x1, y1], ...]"])[1] == [0.5, 0.5, 0.6, 0.6]
+    assert r["note mark"] == "bite marks on the edge"

@@ -46,6 +46,9 @@ EXCEL_COLUMNS = [
     # duplicados marcados por la persona (Hugo, 6 nov): al final, despues de las de Martin
     ("same photo as (photo ID)", "duplicate_of_photo"),
     ("same bone as other record (ID:letter)", "possible_duplicate_of"),
+    # marcas visuales (Hugo, 16 nov)
+    ("marks [[x0, y0, x1, y1], ...]", "marks"),
+    ("note mark", "note_mark"),
 ]
 
 # Columnas de trazabilidad: van en la hoja 'traceability', con las mismas filas y en el mismo
@@ -102,6 +105,8 @@ LEGEND = {
     "round": "annotation round (1, 2, 3, full)",
     "validation_set": "whether the row belongs to the fixed validation set",
     "possible_duplicate_of": "same bone in another iNaturalist record (same or other user): observation ID, optionally :letter there",
+    "marks": "small boxes drawn by the annotator to point out something in the photo (e.g. bite marks, barnacles): a list [[x0, y0, x1, y1], ...] with coordinates relative to the photo (0-1; x0, y0 = upper left corner, x1, y1 = lower right corner), as in crop_box",
+    "note_mark": "free text describing the marks",
     "excluded_reason": "reason for excluding the record",
     "download_date": "date the record was downloaded from iNaturalist",
     "notes": "free-text remarks of the annotator (doubts, unusual cases)",

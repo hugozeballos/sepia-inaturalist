@@ -44,6 +44,10 @@ FIELDS = [
     ("certainty", "Certainty", [1, 0], "all"),
     ("possible_duplicate_of", "Same bone as (ID:letter)", "text", "all"),
     ("notes", "Notes", "text", "all"),
+    # Marcas visuales (Hugo, 16 nov): recuadros chicos sobre algo de la foto (picoteo, picoroco...)
+    # marks = [[x0, y0, x1, y1], ...] en 0-1, mismo orden que crop_box; note_mark = texto libre
+    ("marks", "Marks [[x0,y0,x1,y1],...]", "text", "all"),
+    ("note_mark", "Mark note", "text", "all"),
 ]
 FIELD_NAMES = [f[0] for f in FIELDS]
 
@@ -118,6 +122,38 @@ def from_crop_box(box: dict, width: int, height: int) -> dict:
     """Relativo {x0, y0, x1, y1} -> pixeles {x, y, width, height} para una foto de ese tamano."""
     return {"x": box["x0"] * width, "y": box["y0"] * height,
             "width": (box["x1"] - box["x0"]) * width, "height": (box["y1"] - box["y0"]) * height}
+
+
+MARK = "mark"          # etiqueta de las marcas en el widget de recuadros
+
+
+def parse_marks(text):
+    """
+    '[[x0, y0, x1, y1], ...]' -> lista de listas (0-1, redondeadas), o None si esta vacio.
+    Acepta tambien una lista ya armada. Error si no es valido.
+    """
+    import json
+    if text is None or (isinstance(text, str) and not text.strip()):
+        return None
+    try:
+        marks = json.loads(text) if isinstance(text, str) else text
+        out = []
+        for m in marks:
+            x0, y0, x1, y1 = (float(v) for v in m)
+            if not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
+                raise ValueError
+            out.append([round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4)])
+    except (ValueError, TypeError):
+        raise ValueError("marks must be [[x0, y0, x1, y1], ...] with numbers 0-1 "
+                         "(x0 < x1, y0 < y1), or empty")
+    return out or None
+
+
+def format_marks(marks) -> str:
+    """Lista de marcas -> texto del campo ('' si no hay)."""
+    if not isinstance(marks, list) or not marks:
+        return ""
+    return "[" + ", ".join("[" + ", ".join(f"{v:.4f}" for v in m) + "]" for m in marks) + "]"
 
 
 def format_crop_box(box) -> str:
@@ -588,6 +624,16 @@ class AnnotationApp:
             self.draw_btn.description = "▭ (no boxes)"
         clear_btn = w.Button(description="✕", layout=w.Layout(width="40px"), tooltip="remove box")
         clear_btn.on_click(lambda _: self._safe(self._clear_box))
+        # Marcas: varios recuadros chicos (otra etiqueta/color); se agregan al campo "Marks"
+        self.mark_btn = w.ToggleButton(description="▭ Mark", layout=w.Layout(width="90px"),
+                                       disabled=self.bbox is None,
+                                       tooltip="click, then drag a small rectangle over "
+                                               "something to point out (each one is added)")
+        self.mark_btn.observe(lambda ch: self._safe(lambda: self._toggle_mark(ch["new"])),
+                              names="value")
+        clear_marks = w.Button(description="✕ marks", layout=w.Layout(width="80px"),
+                               tooltip="remove all marks of this individual in this photo")
+        clear_marks.on_click(lambda _: self._safe(self._clear_marks))
         self.draw_btn.observe(lambda ch: self._safe(lambda: self._toggle_draw(ch["new"])), names="value")
         if self.bbox is not None:
             self.bbox.observe(lambda ch: self._safe(lambda: self._on_box_drawn(ch["new"])),
@@ -598,7 +644,8 @@ class AnnotationApp:
 
         self.box_note = w.HTML()       # aviso: recuadro propuesto por el modelo
         form = w.VBox([self.table, self.n_photo, w.HTML("<hr style='margin:4px 0'>"), self.letter,
-                       w.HBox([self.crop, self.draw_btn, clear_btn]), self.box_note]
+                       w.HBox([self.crop, self.draw_btn, clear_btn]), self.box_note,
+                       w.HBox([self.mark_btn, clear_marks])]
                       + list(self.inputs.values()),
                       layout=w.Layout(margin="0 12px"))
         # Atajos de teclado (opcional: requiere anywidget, que instala jupyter-bbox-widget)
@@ -668,7 +715,7 @@ class AnnotationApp:
         W, H = self._image_size(path)
         self._box_size = (W, H)
         self._box_updating = True
-        self.bbox.classes = [v for _, v in options]
+        self.bbox.classes = [v for _, v in options] + [MARK]
         self.bbox.image = str(path)
         boxes = []
         if len(here) and "crop_box" in here:
@@ -737,15 +784,65 @@ class AnnotationApp:
         """Boton 'Draw box': habilita dibujar un recuadro con la letra elegida."""
         if self.bbox is None:
             return
+        if on and getattr(self, "mark_btn", None) is not None and self.mark_btn.value:
+            self.mark_btn.value = False
         self.bbox.label = self.letter.value or ""
         self.bbox.view_only = not on
         self.draw_btn.button_style = "warning" if on else ""
         if on:
             self.msg.value = f"Drag a rectangle around individual <b>{self.letter.value}</b>"
 
+    # --- marcas ---
+    def _toggle_mark(self, on):
+        """Boton 'Mark': cada rectangulo que se arrastre se agrega a 'Marks'."""
+        if self.bbox is None:
+            return
+        if on and self.draw_btn.value:
+            self.draw_btn.value = False
+        self.bbox.label = MARK if on else (self.letter.value or "")
+        self.bbox.view_only = not on
+        self.mark_btn.button_style = "warning" if on else ""
+        if on:
+            self.msg.value = "Drag small rectangles over what you want to point out; press ▭ Mark again to stop"
+
+    def _show_marks(self):
+        """Dibuja las marcas del campo 'Marks' (y quita las que ya no estan)."""
+        if self.bbox is None or not getattr(self, "_box_size", None):
+            return
+        try:
+            marks = parse_marks(self.inputs["marks"].value) or []
+        except ValueError:
+            marks = []
+        W, H = self._box_size
+        self._box_updating = True
+        self.bbox.bboxes = ([b for b in self.bbox.bboxes if b.get("label") != MARK]
+                            + [{"x": m[0] * W, "y": m[1] * H, "width": (m[2] - m[0]) * W,
+                                "height": (m[3] - m[1]) * H, "label": MARK} for m in marks])
+        self._box_updating = False
+
+    def _clear_marks(self):
+        self.inputs["marks"].value = ""
+        self._show_marks()
+
     def _on_box_drawn(self, boxes):
         """Al soltar: deja un solo recuadro por letra y muestra sus coordenadas en el campo."""
-        if self._box_updating or not self.draw_btn.value:
+        if self._box_updating:
+            return
+        if self.mark_btn.value:                       # modo marcas: agregar la nueva
+            try:
+                marks = parse_marks(self.inputs["marks"].value) or []
+            except ValueError:
+                marks = []
+            drawn = [b for b in boxes if b.get("label") == MARK]
+            if len(drawn) > len(marks) and getattr(self, "_box_size", None):
+                b = to_crop_box(drawn[-1], *self._box_size)
+                if b["x1"] - b["x0"] >= 0.005 and b["y1"] - b["y0"] >= 0.005:
+                    marks.append([b["x0"], b["y0"], b["x1"], b["y1"]])
+                    self.inputs["marks"].value = format_marks(marks)
+                    self.msg.value = f"{len(marks)} mark(s): press Save to keep them"
+            self._show_marks()
+            return
+        if not self.draw_btn.value:
             return
         letter = self.letter.value
         mine = [b for b in boxes if b.get("label") == letter]
@@ -938,7 +1035,9 @@ class AnnotationApp:
         for name, wid in self.inputs.items():
             v = vals.get(name)
             v = None if (v is None or (isinstance(v, float) and v != v)) else v
-            if isinstance(wid, self.w.Text):
+            if name == "marks":
+                wid.value = format_marks(v) if isinstance(v, list) else ("" if v is None else str(v))
+            elif isinstance(wid, self.w.Text):
                 wid.value = "" if v is None else str(v)
             else:
                 valid = [o[1] for o in wid.options]
@@ -947,6 +1046,9 @@ class AnnotationApp:
         if not len(cur):               # individuo nuevo en esta foto: valores sugeridos
             self._apply_defaults()     # (uno ya guardado se muestra tal cual, aunque este vacio)
         self._visibility()
+        if self.bbox is not None:
+            self.mark_btn.value = False
+        self._show_marks()
 
     def _values(self):
         vals = {}
@@ -957,6 +1059,7 @@ class AnnotationApp:
             v = self.inputs[name].value if visible else None   # campos ocultos no se guardan
             vals[name] = (v.strip() or None) if isinstance(v, str) else v
         vals["possible_duplicate_of"] = parse_duplicates(vals.get("possible_duplicate_of"))
+        vals["marks"] = parse_marks(vals.get("marks"))
         own = str(int(self.row["observation_id"]))
         if vals["possible_duplicate_of"] and any(t.split(":")[0] == own
                                                  for t in vals["possible_duplicate_of"].split(", ")):
