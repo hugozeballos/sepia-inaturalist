@@ -643,10 +643,14 @@ class AnnotationApp:
         self.inputs["epibionts"].observe(lambda ch: self._visibility(), names="value")
 
         self.box_note = w.HTML()       # aviso: recuadro propuesto por el modelo
+        # Marcas al final, despues de Notes: botones y luego sus dos campos
+        mark_fields = [self.inputs[k] for k in ("marks", "note_mark")]
+        other_fields = [wd for k, wd in self.inputs.items() if k not in ("marks", "note_mark")]
         form = w.VBox([self.table, self.n_photo, w.HTML("<hr style='margin:4px 0'>"), self.letter,
-                       w.HBox([self.crop, self.draw_btn, clear_btn]), self.box_note,
-                       w.HBox([self.mark_btn, clear_marks])]
-                      + list(self.inputs.values()),
+                       w.HBox([self.crop, self.draw_btn, clear_btn]), self.box_note]
+                      + other_fields
+                      + [w.HTML("<hr style='margin:4px 0'>"),
+                         w.HBox([self.mark_btn, clear_marks])] + mark_fields,
                       layout=w.Layout(margin="0 12px"))
         # Atajos de teclado (opcional: requiere anywidget, que instala jupyter-bbox-widget)
         self.keys = _make_key_listener()
