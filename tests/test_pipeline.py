@@ -1768,13 +1768,25 @@ def test_marks(api, cfg):
     _ready(cfg)
     app = sepia.AnnotationApp(cfg, annotator="HZ")
     W, H = app._box_size
+    app.crop.value = "0.0000, 0.0000, 0.9000, 0.9000"                # recuadro del hueso
+    app._safe(app.on_save)
+    assert any(b["label"] == "a" for b in app.bbox.bboxes)
     app.mark_btn.value = True
     assert app.bbox.label == "mark" and app.bbox.view_only is False
+    assert app.bbox.bboxes == []                                   # el del hueso se esconde
     app.bbox.bboxes = [{"x": 0, "y": 0, "width": W / 10, "height": H / 10, "label": "mark"}]
     app.bbox.bboxes = app.bbox.bboxes + [{"x": W / 2, "y": H / 2, "width": W / 10,
                                           "height": H / 10, "label": "mark"}]
     assert app.inputs["marks"].value.count("[") == 3                # 2 marcas
+    moved = [dict(b) for b in app.bbox.bboxes]
+    moved[1]["x"] = W * 0.6                                         # mover la segunda
+    app.bbox.bboxes = moved
+    assert "0.6000" in app.inputs["marks"].value
+    back = [dict(b) for b in moved]
+    back[1]["x"] = W / 2
+    app.bbox.bboxes = back
     app.mark_btn.value = False
+    assert any(b["label"] == "a" for b in app.bbox.bboxes)         # vuelve el del hueso
     app.inputs["note_mark"].value = "bite marks on the edge"
     app.inputs["state"].value = "cuttlebone"
     app._safe(app.on_save)

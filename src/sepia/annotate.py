@@ -794,30 +794,52 @@ class AnnotationApp:
 
     # --- marcas ---
     def _toggle_mark(self, on):
-        """Boton 'Mark': cada rectangulo que se arrastre se agrega a 'Marks'."""
+        """
+        Boton 'Mark'. Mientras esta activo, la foto muestra SOLO las marcas: el recuadro del hueso
+        se esconde, porque el widget no deja empezar un rectangulo dentro de otro (al hacer clic
+        dentro, lo selecciona o lo mueve). Al apagarlo vuelven los recuadros del hueso.
+        Las marcas se pueden mover o cambiar de tamano en este modo: el campo 'Marks' se
+        actualiza con lo que se ve.
+        """
         if self.bbox is None:
             return
         if on and self.draw_btn.value:
             self.draw_btn.value = False
+        self._box_updating = True
+        if on:
+            self._hidden_boxes = [b for b in self.bbox.bboxes if b.get("label") != MARK]
+            self.bbox.bboxes = [b for b in self.bbox.bboxes if b.get("label") == MARK]
+        else:
+            marks = [b for b in self.bbox.bboxes if b.get("label") == MARK]
+            self.bbox.bboxes = list(getattr(self, "_hidden_boxes", [])) + marks
+            self._hidden_boxes = []
+        self._box_updating = False
         self.bbox.label = MARK if on else (self.letter.value or "")
         self.bbox.view_only = not on
         self.mark_btn.button_style = "warning" if on else ""
-        if on:
-            self.msg.value = "Drag small rectangles over what you want to point out; press ▭ Mark again to stop"
+        self.msg.value = ("Mark mode: drag small rectangles (you can draw inside the bone; its "
+                          "box is hidden meanwhile). Press ▭ Mark again to finish" if on else
+                          self.msg.value)
 
     def _show_marks(self):
         """Dibuja las marcas del campo 'Marks' (y quita las que ya no estan)."""
         if self.bbox is None or not getattr(self, "_box_size", None):
             return
+        if self.mark_btn.value:                       # en modo marcas solo se ven las marcas
+            self._hidden_boxes = [b for b in self.bbox.bboxes if b.get("label") != MARK] \
+                if not getattr(self, "_hidden_boxes", None) else self._hidden_boxes
         try:
             marks = parse_marks(self.inputs["marks"].value) or []
         except ValueError:
             marks = []
         W, H = self._box_size
+        mark_boxes = [{"x": m[0] * W, "y": m[1] * H, "width": (m[2] - m[0]) * W,
+                       "height": (m[3] - m[1]) * H, "label": MARK} for m in marks]
         self._box_updating = True
-        self.bbox.bboxes = ([b for b in self.bbox.bboxes if b.get("label") != MARK]
-                            + [{"x": m[0] * W, "y": m[1] * H, "width": (m[2] - m[0]) * W,
-                                "height": (m[3] - m[1]) * H, "label": MARK} for m in marks])
+        if self.mark_btn.value:
+            self.bbox.bboxes = mark_boxes
+        else:
+            self.bbox.bboxes = [b for b in self.bbox.bboxes if b.get("label") != MARK] + mark_boxes
         self._box_updating = False
 
     def _clear_marks(self):
@@ -828,19 +850,18 @@ class AnnotationApp:
         """Al soltar: deja un solo recuadro por letra y muestra sus coordenadas en el campo."""
         if self._box_updating:
             return
-        if self.mark_btn.value:                       # modo marcas: agregar la nueva
-            try:
-                marks = parse_marks(self.inputs["marks"].value) or []
-            except ValueError:
-                marks = []
-            drawn = [b for b in boxes if b.get("label") == MARK]
-            if len(drawn) > len(marks) and getattr(self, "_box_size", None):
-                b = to_crop_box(drawn[-1], *self._box_size)
-                if b["x1"] - b["x0"] >= 0.005 and b["y1"] - b["y0"] >= 0.005:
-                    marks.append([b["x0"], b["y0"], b["x1"], b["y1"]])
-                    self.inputs["marks"].value = format_marks(marks)
-                    self.msg.value = f"{len(marks)} mark(s): press Save to keep them"
-            self._show_marks()
+        if self.mark_btn.value:
+            # modo marcas: el campo refleja TODAS las marcas que se ven (nuevas, movidas o
+            # cambiadas de tamano). Las que quedan demasiado chicas (un clic suelto) se ignoran.
+            if not getattr(self, "_box_size", None):
+                return
+            marks = []
+            for b in boxes:
+                c = to_crop_box(b, *self._box_size)
+                if c["x1"] - c["x0"] >= 0.005 and c["y1"] - c["y0"] >= 0.005:
+                    marks.append([c["x0"], c["y0"], c["x1"], c["y1"]])
+            self.inputs["marks"].value = format_marks(marks)
+            self.msg.value = f"{len(marks)} mark(s): press ▭ Mark to finish and Save to keep them"
             return
         if not self.draw_btn.value:
             return
