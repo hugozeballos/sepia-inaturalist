@@ -882,3 +882,95 @@ class DisagreementApp:
         """Muestra la interfaz en la celda del notebook."""
         from IPython.display import display
         display(self.box)
+
+
+# --------------------------------------------------------------------------
+# Triaje por registro: estado y numero de huesos, modelo vs persona
+# --------------------------------------------------------------------------
+
+# Estados de la anotacion manual -> nombres del triaje
+_HUMAN_STATE = {"cuttlebone": "cuttlebone", "live animal": "live_animal", "egg case": "egg_case"}
+
+
+def human_records(cfg: Config) -> pd.DataFrame:
+    """
+    Una fila por registro con TODAS sus fotos anotadas y no excluido:
+    n_cuttlebones (letras distintas con estado hueso), record_state (cuttlebone / live_animal /
+    egg_case / mixed / none si no hay individuos) y assisted (alguna linea vino de la asistida).
+    """
+    from .annotate import load_events, done_photos
+    from .inat import load_tables
+    _, pho = load_tables(cfg)
+    ev = load_events(cfg)
+    done = pd.DataFrame(list(done_photos(ev)), columns=["observation_id", "photo_id"])
+    if done.empty or pho.empty:
+        return pd.DataFrame(columns=["observation_id", "n_cuttlebones", "record_state", "assisted"])
+    n_photos = pho.groupby("observation_id")["photo_id"].nunique()
+    n_done = done.groupby("observation_id")["photo_id"].nunique()
+    complete = set(n_done[n_done == n_photos.reindex(n_done.index)].index.astype(int))
+    complete -= set(ev["exclude_record"]["observation_id"].astype(int))
+    ind = ev["individual"]
+    assisted = set()
+    for k in ("individual", "photo_info"):
+        d = ev[k]
+        if len(d) and "prefilled_from" in d:
+            assisted |= set(d.loc[d["prefilled_from"] == "assisted", "observation_id"].astype(int))
+    rows = []
+    for oid in sorted(complete):
+        r = ind[ind["observation_id"].astype(int) == oid]
+        states = {_HUMAN_STATE.get(str(s), str(s)) for s in r["state"].dropna()} if len(r) else set()
+        bones = r[r["state"] == "cuttlebone"]["individual"].nunique() if len(r) else 0
+        rows.append({"observation_id": oid, "n_cuttlebones": int(bones),
+                     "record_state": ("none" if not states else
+                                      states.pop() if len(states) == 1 else "mixed"),
+                     "assisted": oid in assisted})
+    return pd.DataFrame(rows)
+
+
+def triage_agreement(cfg: Config, versions: list[str], quiet: bool = False,
+                     exclude_assisted: bool = False) -> pd.DataFrame:
+    """
+    Triaje (por registro) vs anotacion manual, sobre los registros completos que tienen
+    resultado en TODAS las versiones. Por version:
+    - state_agreement: record_state igual al de la persona;
+    - count_possible_false: registros que el modelo manda a conteo manual (> 5 huesos o dudosos);
+    - count_agreement / model_more / model_fewer: numero de huesos, solo donde count_possible.
+    exclude_assisted=True: deja fuera los registros con anotacion prellenada de la asistida.
+    """
+    from .triage import load_triage
+    t = cfg.triage or {}
+    h = human_records(cfg)
+    if exclude_assisted and len(h):
+        h = h[~h["assisted"]]
+    tabs = {v: load_triage(cfg, t.get("provider", "gemini"), t.get("model"), v) for v in versions}
+    tabs = {v: d for v, d in tabs.items() if len(d)}
+    common = set(h["observation_id"].astype(int))
+    for d in tabs.values():
+        common &= set(d["observation_id"].astype(int))
+    h = h[h["observation_id"].isin(common)].set_index("observation_id")
+    if not quiet:
+        print(f"Registros comparados (completos y con resultado en {', '.join(tabs)}): {len(h)}"
+              + (f" · {int(h['assisted'].sum())} con anotacion asistida" if len(h) else ""))
+    rows = []
+    for v, d in tabs.items():
+        m = d.set_index("observation_id").reindex(h.index)
+        possible = m["count_possible"].fillna(False).astype(bool)
+        mc = pd.to_numeric(m["n_cuttlebones"], errors="coerce")
+        sub = possible & mc.notna()
+        rows.append({"version": v, "n": len(h),
+                     "state_agreement": float((m["record_state"] == h["record_state"]).mean())
+                     if len(h) else None,
+                     "count_possible_false": int((~possible).sum()),
+                     "count_n": int(sub.sum()),
+                     "count_agreement": float((mc[sub] == h.loc[sub, "n_cuttlebones"]).mean())
+                     if sub.any() else None,
+                     "model_more": int((mc[sub] > h.loc[sub, "n_cuttlebones"]).sum()),
+                     "model_fewer": int((mc[sub] < h.loc[sub, "n_cuttlebones"]).sum())})
+        if not quiet:
+            print(f"\n{v} · record state (rows = human, columns = model)")
+            print(pd.crosstab(h["record_state"].rename("human"),
+                              m["record_state"].fillna("(none)").rename("model")).to_string())
+    out = pd.DataFrame(rows).set_index("version") if rows else pd.DataFrame()
+    if not quiet and len(out):
+        print("\n" + out.round(2).to_string())
+    return out

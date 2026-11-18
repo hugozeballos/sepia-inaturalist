@@ -1799,3 +1799,47 @@ def test_marks(api, cfg):
     r = _excel_rows(sepia.build_excel(cfg, "marks.xlsx"))[1][0]
     assert json.loads(r["marks [[x0, y0, x1, y1], ...]"])[1] == [0.5, 0.5, 0.6, 0.6]
     assert r["note mark"] == "bite marks on the edge"
+
+
+def test_triage_agreement(tmp_path):
+    """Triaje por registro vs persona: estado, conteo y registros incompletos fuera."""
+    import json
+    from sepia.disagree import triage_agreement, human_records
+    cfg = sepia.Config(base_dir=str(tmp_path),
+                       triage={"provider": "gemini", "model": "m", "prompt_version": "triage_v2"})
+    p = sepia.paths(cfg)
+    # registro 1: 2 huesos en 1 foto; registro 2: 1 hueso en 2 fotos (misma letra);
+    # registro 3: huevos; registro 4: incompleto (foto 42 sin anotar) -> fuera
+    photos = [(1, 11), (2, 21), (2, 22), (3, 31), (4, 41), (4, 42)]
+    with open(p["tables"] / "photos.jsonl", "w") as f:
+        for i, (o, ph) in enumerate(photos):
+            f.write(json.dumps({"observation_id": o, "photo_id": ph, "position": i,
+                                "file_name": f"{o}_{ph}.jpg"}) + "\n")
+    ind = [(1, 11, "a", "cuttlebone"), (1, 11, "b", "cuttlebone"), (2, 21, "a", "cuttlebone"),
+           (2, 22, "a", "cuttlebone"), (3, 31, "a", "egg case"), (4, 41, "a", "cuttlebone")]
+    with open(p["annotations"] / "manual_T.jsonl", "w") as f:
+        for o, ph, l, s in ind:
+            f.write(json.dumps({"kind": "individual", "observation_id": o, "photo_id": ph,
+                                "individual": l, "state": s, "saved_at": "2026-11-01"}) + "\n")
+    h = human_records(cfg).set_index("observation_id")
+    assert list(h.index) == [1, 2, 3]
+    assert h.loc[1, "n_cuttlebones"] == 2 and h.loc[2, "n_cuttlebones"] == 1
+    assert h.loc[3, "record_state"] == "egg_case"
+    out = p["base"] / "outputs"
+    out.mkdir(exist_ok=True)
+    model = {"triage_v2": {1: ("cuttlebone", 2, True), 2: ("cuttlebone", 2, True),
+                           3: ("egg_case", 0, True), 4: ("cuttlebone", 1, True)},
+             "triage_v15": {1: ("cuttlebone", 7, False), 2: ("cuttlebone", 1, True),
+                            3: ("cuttlebone", 1, True), 4: ("cuttlebone", 1, True)}}
+    for v, recs in model.items():
+        with open(out / f"triage_gemini_m_{v}.jsonl", "w") as f:
+            for o, (s, n, cp) in recs.items():
+                f.write(json.dumps({"observation_id": o, "error": None, "saved_at": "2026-11-02",
+                                    "prompt_sha": "x", "result": {"record_state": s,
+                                    "n_cuttlebones": n, "count_possible": cp}}) + "\n")
+    t = triage_agreement(cfg, ["triage_v2", "triage_v15"], quiet=True)
+    assert t.loc["triage_v2", "n"] == 3
+    assert t.loc["triage_v2", "state_agreement"] == 1.0
+    assert t.loc["triage_v2", "model_more"] == 1                 # registro 2: 2 en vez de 1
+    assert t.loc["triage_v15", "count_possible_false"] == 1      # registro 1 a conteo manual
+    assert abs(t.loc["triage_v15", "state_agreement"] - 2 / 3) < 1e-9
