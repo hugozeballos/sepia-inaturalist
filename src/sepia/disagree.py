@@ -889,7 +889,10 @@ class DisagreementApp:
 # --------------------------------------------------------------------------
 
 # Estados de la anotacion manual -> nombres del triaje
-_HUMAN_STATE = {"cuttlebone": "cuttlebone", "live animal": "live_animal", "egg case": "egg_case"}
+# "dead animal" no existe en los prompts (triage_v2, assist_v15 lo cuentan como live_animal):
+# en la comparacion persona vs modelo, dead_animal sale como desacuerdo.
+_HUMAN_STATE = {"cuttlebone": "cuttlebone", "live animal": "live_animal",
+                "dead animal": "dead_animal", "egg case": "egg_case"}
 
 
 def human_records(cfg: Config) -> pd.DataFrame:

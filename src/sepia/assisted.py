@@ -56,7 +56,7 @@ WRITE_OPTIONS = {f: [""] + (opts if opts else [str(i) for i in range(0, 16)])
 EVIDENCE = ["side_basis", "side_evidence", "cover", "focus", "quality_evidence", "notes"]
 # Campos manuales: (nombre, opciones o "text", valor por defecto)
 MANUAL_FIELDS = [
-    ("state", ["cuttlebone", "live animal", "egg case"], "cuttlebone"),
+    ("state", ["cuttlebone", "live animal", "dead animal", "egg case"], "cuttlebone"),
     ("bitemarks", ["", "yes", "no", "(yes)"], None),          # por defecto segun el lado
     ("epibionts", ["yes", "no"], "no"),
     ("certainty", [1, 0], 1),

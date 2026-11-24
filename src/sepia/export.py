@@ -128,7 +128,7 @@ RECORD_LEGEND = {
     "private_longitude": "see private_latitude",
     "photo IDs": "iNaturalist photo IDs of the record, in their order in the record",
     "photos annotated": "photos of the record already annotated by a person / total photos",
-    "state (annotated)": "states annotated in the record: cuttlebone, live animal, egg case, or mixed",
+    "state (annotated)": "states annotated in the record: cuttlebone, live animal, dead animal (dead cuttlefish with soft tissue: skin, eyes or arms), egg case, or mixed",
 }
 # Texto de la hoja 'map' de Martin, por nombre de hoja
 SECTOR_TEXT = {"A1": "from Thurso to North Shields",
@@ -222,7 +222,7 @@ def load_annotations(cfg: Config) -> pd.DataFrame:
 
 # Estado del triaje -> palabras de la hoja 'legend' de Martin
 STATE_WORDS = {"cuttlebone": "cuttlebone", "live_animal": "live animal",
-               "egg_case": "egg case", "mixed": "mixed", "other": "other",
+               "dead_animal": "dead animal", "egg_case": "egg case", "mixed": "mixed", "other": "other",
                "unclear": "unclear"}
 
 

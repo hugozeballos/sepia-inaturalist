@@ -31,7 +31,7 @@ SCHEMA_VERSION = 1
 # Campos por individuo: (nombre interno, etiqueta, opciones o "text", grupo)
 # grupo "all": siempre; "bone": solo si state = cuttlebone; "barnacle": solo si epibionts = yes
 FIELDS = [
-    ("state", "State", ["cuttlebone", "live animal", "egg case"], "all"),
+    ("state", "State", ["cuttlebone", "live animal", "dead animal", "egg case"], "all"),
     ("side", "Side", ["dorsal", "ventral", "unclear"], "bone"),
     ("photo_quality", "Photo quality", ["high", "medium", "low"], "bone"),
     ("erosion", "Erosion", [1, 2, 3], "bone"),
